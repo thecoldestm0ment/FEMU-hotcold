@@ -2,7 +2,7 @@
 #include "./ftl.h"
 
 static void bb_init_ctrl_str(FemuCtrl *n)
-{
+{ // SSD 컨트롤러 이름, 시리얼 번호 초기화
     static int fsid_vbb = 0;
     const char *vbbssd_mn = "FEMU BlackBox-SSD Controller";
     const char *vbbssd_sn = "vSSD";
@@ -12,7 +12,7 @@ static void bb_init_ctrl_str(FemuCtrl *n)
 
 /* bb <=> black-box */
 static void bb_init(FemuCtrl *n, Error **errp)
-{
+{ // SSD 초기화, FTL 초기화, NAND 미디어 초기화
     struct ssd *ssd = n->ssd = g_malloc0(sizeof(struct ssd));
 
     bb_init_ctrl_str(n);
@@ -24,7 +24,7 @@ static void bb_init(FemuCtrl *n, Error **errp)
 }
 
 static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
-{
+{ // SSD 상태 변경, FEMU 동작 모드 변경(GC Delay Emulation, Delay Emulation, Log print)
     struct ssd *ssd = n->ssd;
     int64_t cdw10 = le64_to_cpu(cmd->cdw10);
 
@@ -37,7 +37,7 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
         ssd->sp.enable_gc_delay = false;
         femu_log("%s,FEMU GC Delay Emulation [Disabled]!\n", n->devname);
         break;
-    case FEMU_ENABLE_DELAY_EMU:
+    case FEMU_ENABLE_DELAY_EMU: // enable delay emulation
         ssd->sp.pg_rd_lat = NAND_READ_LATENCY;
         ssd->sp.pg_wr_lat = NAND_PROG_LATENCY;
         ssd->sp.blk_er_lat = NAND_ERASE_LATENCY;
@@ -46,7 +46,7 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
         bb_nand_media_refresh_timing(ssd);
         femu_log("%s,FEMU Delay Emulation [Enabled]!\n", n->devname);
         break;
-    case FEMU_DISABLE_DELAY_EMU:
+    case FEMU_DISABLE_DELAY_EMU: // disable delay emulation
         ssd->sp.pg_rd_lat = 0;
         ssd->sp.pg_wr_lat = 0;
         ssd->sp.blk_er_lat = 0;
@@ -55,7 +55,7 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
         bb_nand_media_refresh_timing(ssd);
         femu_log("%s,FEMU Delay Emulation [Disabled]!\n", n->devname);
         break;
-    case FEMU_RESET_ACCT: {
+    case FEMU_RESET_ACCT: { // reset the I/O accounting counters
         /* counters are sharded per poller (see FemuPollerCtr); sum then reset */
         int64_t tt = 0, late = 0;
         if (n->poller_ctr) {
@@ -69,11 +69,11 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
         femu_log("%s,Reset tt_late_ios/tt_ios,%ld/%ld\n", n->devname, late, tt);
         break;
     }
-    case FEMU_ENABLE_LOG:
+    case FEMU_ENABLE_LOG: // enable log print
         n->print_log = true;
         femu_log("%s,Log print [Enabled]!\n", n->devname);
         break;
-    case FEMU_DISABLE_LOG:
+    case FEMU_DISABLE_LOG: // disable log print
         n->print_log = false;
         femu_log("%s,Log print [Disabled]!\n", n->devname);
         break;
@@ -84,13 +84,13 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
 
 static uint16_t bb_nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
                            NvmeRequest *req)
-{
+{ // NVMe read/write command 처리, 실제 I/O 수행
     return nvme_rw(n, ns, cmd, req);
 }
 
 static uint16_t bb_io_cmd(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
                           NvmeRequest *req)
-{
+{ // NVMe I/O command 처리, read/write command만 처리
     switch (cmd->opcode) {
     case NVME_CMD_READ:
     case NVME_CMD_WRITE:
@@ -101,7 +101,7 @@ static uint16_t bb_io_cmd(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
 }
 
 static uint16_t bb_admin_cmd(FemuCtrl *n, NvmeCmd *cmd)
-{
+{ // NVMe admin command 처리, FEMU flip command만 처리
     switch (cmd->opcode) {
     case NVME_ADM_CMD_FEMU_FLIP:
         bb_flip(n, cmd);
@@ -112,7 +112,7 @@ static uint16_t bb_admin_cmd(FemuCtrl *n, NvmeCmd *cmd)
 }
 
 int nvme_register_bbssd(FemuCtrl *n)
-{
+{ // BlackBox-SSD 모드 등록, FTL 초기화, NAND 미디어 초기화
     n->ext_ops = (FemuExtCtrlOps) {
         .state            = NULL,
         .init             = bb_init,

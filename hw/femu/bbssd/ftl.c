@@ -3,9 +3,19 @@
 
 //#define FEMU_DEBUG_FTL
 
+/*
+ * 기본 bbssd(non-FDP) FTL 읽기 순서
+ *   ssd_init() -> ftl_thread() -> ssd_read()/ssd_write()/ssd_trim()
+ *                              -> should_gc()/do_gc()
+ *
+ * LPN은 호스트의 논리 페이지 번호, PPA는 NAND의 물리 페이지 주소다.
+ * maptbl은 LPN->PPA, rmap은 PPA->LPN 변환에 사용한다.
+ * line은 모든 channel/LUN에서 같은 block 번호를 묶은 GC 단위다.
+ * 주소/매핑 helper는 ftl-internal.h, NAND 지연 계산은 ftl-media.c에 있다.
+ */
 static void *ftl_thread(void *arg);
 
-/* FDP forward declarations */
+/* FDP 함수 전방 선언 */
 static void mark_page_valid_fdp(struct ssd *ssd, struct ppa *ppa,
                                 FemuReclaimUnit *ru);
 static void mark_page_invalid_fdp(struct ssd *ssd, struct ppa *ppa);
@@ -20,8 +30,8 @@ static void ssd_reset_maptbl(struct ssd *ssd);
 static void exp_load_cfg(void);
 
 /*
- * ftl_fdp_alloc_event - allocate an FDP event from the FTL layer
- * Used by GC to generate controller events.
+ * ftl_fdp_alloc_event - FTL 계층에서 FDP event를 할당한다.
+ * GC가 controller event를 생성할 때 사용한다.
  */
 static NvmeFdpEvent *ftl_fdp_alloc_event(struct ssd *ssd,
                                           NvmeFdpEventBuffer *ebuf)
@@ -45,17 +55,20 @@ static NvmeFdpEvent *ftl_fdp_alloc_event(struct ssd *ssd,
 
 static inline bool should_gc(struct ssd *ssd)
 {
+    /* background GC: 여유 line이 일반 임계값 이하인지 확인 */
     return (ssd->lm.free_line_cnt <= ssd->sp.gc_thres_lines);
 }
 
 static inline bool should_gc_high(struct ssd *ssd)
 {
+    /* foreground GC: 새 write 전에 확보해야 할 긴급 임계값 */
     return (ssd->lm.free_line_cnt <= ssd->sp.gc_thres_lines_high);
 }
 
-/* FDP GC decision: returns rg index if GC needed, -1 otherwise */
+/* FDP GC 판단: GC가 필요하면 RG index, 아니면 -1을 반환한다. */
 static inline int16_t should_gc_fdp_style(struct ssd *ssd)
 {
+    /* free RU 수가 gc_thres_rus 이하이면 RG index 반환 */
     for (int i = 0; i < (int)ssd->nrg; i++) {
         if (ssd->rg[i].ru_mgmt->free_ru_cnt <=
             ssd->rg[i].ru_mgmt->gc_thres_rus) {
@@ -67,6 +80,7 @@ static inline int16_t should_gc_fdp_style(struct ssd *ssd)
 
 static inline int should_gc_high_fdp_style(struct ssd *ssd)
 {
+    /* free RU 수가 긴급 임계값 이하이면 RG index 반환 */
     for (int i = 0; i < (int)ssd->nrg; i++) {
         if (ssd->rg[i].ru_mgmt->free_ru_cnt <=
             ssd->rg[i].ru_mgmt->gc_thres_rus_high) {
@@ -102,7 +116,7 @@ static inline void victim_line_set_pos(void *a, size_t pos)
     ((struct line *)a)->pos = pos;
 }
 
-/* FDP: victim RU priority queue callbacks (greedy by vpc) */
+/* FDP: vpc 기반 greedy victim RU priority queue callback */
 static inline int victim_ru_cmp_pri(pqueue_pri_t next, pqueue_pri_t curr)
 {
     return (next > curr);
@@ -129,12 +143,11 @@ static inline void victim_ru_set_pos(void *a, size_t pos)
 }
 
 /*
- * A PI-type RUH keeps its full RUs in BOTH the per-RG (global) victim pqueue
- * and its own per-RUH victim pqueue simultaneously. The two heaps must track
- * each RU's index independently, so the per-RUH queues use ruh_pos via these
- * callbacks. Sharing the single `pos` field across both heaps (issue #189)
- * corrupted whichever heap was touched second and crashed in
- * victim_ru_get_pri(NULL).
+ * PI type RUH는 full RU를 per-RG(global) victim pqueue와 자체 per-RUH
+ * victim pqueue 양쪽에 동시에 보관한다. 두 heap은 각 RU의 index를 독립적으로
+ * 추적해야 하므로, per-RUH queue는 이 callback을 통해 ruh_pos를 사용한다.
+ * 두 heap이 하나의 `pos` field를 공유하면(issue #189) 나중에 접근한 heap이
+ * 손상되고 victim_ru_get_pri(NULL)에서 crash가 발생한다.
  */
 static inline size_t victim_ru_get_pos_ruh(void *a)
 {
@@ -146,7 +159,7 @@ static inline void victim_ru_set_pos_ruh(void *a, size_t pos)
     ((FemuReclaimUnit *)a)->ruh_pos = pos;
 }
 
-/* FDP: victim RU priority queue callbacks (cost-benefit by my_cb) */
+/* FDP: my_cb 기반 cost-benefit victim RU priority queue callback */
 static inline int victim_ru_cmp_pri_by_cb(pqueue_pri_t next, pqueue_pri_t curr)
 {
     return (next > curr);
@@ -154,7 +167,7 @@ static inline int victim_ru_cmp_pri_by_cb(pqueue_pri_t next, pqueue_pri_t curr)
 
 static inline pqueue_pri_t victim_ru_get_pri_by_cb(void *a)
 {
-    /* cast float to pqueue_pri_t for ordering */
+    /* 정렬을 위해 float를 pqueue_pri_t로 변환 */
     return (pqueue_pri_t)((FemuReclaimUnit *)a)->my_cb;
 }
 
@@ -163,6 +176,7 @@ static inline void victim_ru_set_pri_by_cb(void *a, pqueue_pri_t pri)
     ((FemuReclaimUnit *)a)->my_cb = (float)pri;
 }
 
+/* 모든 line을 free list에 넣고 victim/full 관리 자료구조를 준비한다. */
 static void ssd_init_lines(struct ssd *ssd)
 {
     struct ssdparams *spp = &ssd->sp;
@@ -186,7 +200,7 @@ static void ssd_init_lines(struct ssd *ssd)
         line->ipc = 0;
         line->vpc = 0;
         line->pos = 0;
-        /* initialize all the lines as free lines */
+        /* 모든 line을 free line으로 초기화 */
         QTAILQ_INSERT_TAIL(&lm->free_line_list, line, entry);
         lm->free_line_cnt++;
     }
@@ -196,6 +210,7 @@ static void ssd_init_lines(struct ssd *ssd)
     lm->full_line_cnt = 0;
 }
 
+/* 첫 free line을 꺼내 non-FDP용 단일 write pointer를 시작한다. */
 static void ssd_init_write_pointer(struct ssd *ssd)
 {
     struct write_pointer *wpp = &ssd->wp;
@@ -206,7 +221,7 @@ static void ssd_init_write_pointer(struct ssd *ssd)
     QTAILQ_REMOVE(&lm->free_line_list, curline, entry);
     lm->free_line_cnt--;
 
-    /* wpp->curline is always our next-to-write super-block */
+    /* wpp->curline은 항상 다음 write에 사용할 superblock이다. */
     wpp->curline = curline;
     wpp->ch = 0;
     wpp->lun = 0;
@@ -216,6 +231,7 @@ static void ssd_init_write_pointer(struct ssd *ssd)
 }
 
 
+/* free list에서 다음 line을 꺼내고 남은 free line 수를 줄인다. */
 static struct line *get_next_free_line(struct ssd *ssd)
 {
     struct line_mgmt *lm = &ssd->lm;
@@ -232,6 +248,11 @@ static struct line *get_next_free_line(struct ssd *ssd)
     return curline;
 }
 
+/*
+ * write pointer 순회: channel -> LUN -> page.
+ * 한 line을 다 쓰면 valid page만 있으면 full, invalid page가 있으면 victim
+ * 자료구조로 옮긴 뒤 다음 free line에서 다시 시작한다.
+ */
 static void ssd_advance_write_pointer(struct ssd *ssd)
 {
     struct ssdparams *spp = &ssd->sp;
@@ -244,48 +265,49 @@ static void ssd_advance_write_pointer(struct ssd *ssd)
         wpp->ch = 0;
         check_addr(wpp->lun, spp->luns_per_ch);
         wpp->lun++;
-        /* in this case, we should go to next lun */
+        /* 현재 channel을 모두 돌았으므로 다음 LUN으로 이동 */
         if (wpp->lun == spp->luns_per_ch) {
             wpp->lun = 0;
-            /* go to next page in the block */
+            /* 모든 LUN을 돌았으므로 block의 다음 page로 이동 */
             check_addr(wpp->pg, spp->pgs_per_blk);
             wpp->pg++;
             if (wpp->pg == spp->pgs_per_blk) {
                 wpp->pg = 0;
-                /* move current line to {victim,full} line list */
+                /* 사용이 끝난 line을 victim 또는 full 자료구조로 이동 */
                 if (wpp->curline->vpc == spp->pgs_per_line) {
-                    /* all pgs are still valid, move to full line list */
+                    /* 모든 page가 valid이면 full line list로 이동 */
                     ftl_assert(wpp->curline->ipc == 0);
                     QTAILQ_INSERT_TAIL(&lm->full_line_list, wpp->curline, entry);
                     lm->full_line_cnt++;
                 } else {
                     ftl_assert(wpp->curline->vpc >= 0 && wpp->curline->vpc < spp->pgs_per_line);
-                    /* there must be some invalid pages in this line */
+                    /* 이 line에는 invalid page가 하나 이상 있어야 한다. */
                     ftl_assert(wpp->curline->ipc > 0);
                     pqueue_insert(lm->victim_line_pq, wpp->curline);
                     lm->victim_line_cnt++;
                 }
-                /* current line is used up, pick another empty line */
+                /* 현재 line을 모두 사용했으므로 다음 free line 선택 */
                 check_addr(wpp->blk, spp->blks_per_pl);
                 wpp->curline = NULL;
                 wpp->curline = get_next_free_line(ssd);
                 if (!wpp->curline) {
-                    /* TODO */
+                    /* TODO: free line 고갈 처리 */
                     abort();
                 }
                 wpp->blk = wpp->curline->id;
                 check_addr(wpp->blk, spp->blks_per_pl);
-                /* make sure we are starting from page 0 in the super block */
+                /* 새 superblock이 page 0부터 시작하는지 확인 */
                 ftl_assert(wpp->pg == 0);
                 ftl_assert(wpp->lun == 0);
                 ftl_assert(wpp->ch == 0);
-                /* TODO: assume # of pl_per_lun is 1, fix later */
+                /* TODO: 현재는 LUN당 plane 수를 1로 가정하며 추후 수정 필요 */
                 ftl_assert(wpp->pl == 0);
             }
         }
     }
 }
 
+/* 현재 write pointer가 가리키는, 다음 write에 사용할 PPA를 만든다. */
 static struct ppa get_new_page(struct ssd *ssd)
 {
     struct write_pointer *wpp = &ssd->wp;
@@ -303,6 +325,7 @@ static struct ppa get_new_page(struct ssd *ssd)
 
 
 
+/* geometry, NAND, mapping, line을 초기화하고 FTL worker thread를 시작한다. */
 void ssd_init(FemuCtrl *n)
 {
     struct ssd *ssd = n->ssd;
@@ -311,30 +334,30 @@ void ssd_init(FemuCtrl *n)
     ftl_assert(ssd);
     ssd->n = n;
 
-    /* read the data-remanence experiment env vars once (debug only, off by default) */
+    /* data-remanence 실험용 환경 변수를 한 번만 읽는다(debug 전용, 기본 off). */
     exp_load_cfg();
 
     ssd_init_params(spp, n);
 
-    /* initialize ssd internal layout architecture */
+    /* SSD 내부 NAND 계층 구조 초기화 */
     ssd->ch = g_malloc0(sizeof(struct ssd_channel) * spp->nchs);
     for (int i = 0; i < spp->nchs; i++) {
         ssd_init_ch(&ssd->ch[i], spp);
     }
 
-    /* configure the NAND media-layer timing (reads spp, points at ssd->ch) */
+    /* NAND media 계층의 timing 설정(spp 참조, ssd->ch 연결) */
     bb_nand_media_init(ssd);
 
-    /* initialize maptbl */
+    /* LPN -> PPA mapping table 초기화 */
     ssd_init_maptbl(ssd);
 
-    /* initialize rmap */
+    /* PPA -> LPN reverse mapping table 초기화 */
     ssd_init_rmap(ssd);
 
-    /* initialize all the lines */
+    /* 모든 line 초기화 */
     ssd_init_lines(ssd);
 
-    /* FDP vs non-FDP init path */
+    /* FDP와 non-FDP 초기화 경로 선택 */
     ssd->fdp_enabled = (n->subsys != NULL &&
                         n->subsys->params.fdp.enabled);
     ssd->fdp_debug = (getenv("FEMU_FDP_DEBUG") != NULL);
@@ -349,7 +372,7 @@ void ssd_init(FemuCtrl *n)
         ftl_log("FDP: init complete (nrg=%lu, nruhs=%lu)\n",
                 ssd->nrg, ssd->nruhs);
     } else {
-        /* non-FDP: use single write pointer */
+        /* non-FDP는 단일 write pointer 사용 */
         ssd_init_write_pointer(ssd);
     }
 
@@ -359,16 +382,15 @@ void ssd_init(FemuCtrl *n)
 
 
 /*
- * Deleted-data-remanence experiment instrumentation (debug only; does not change
- * FTL behavior). Gated by environment variables read once at init:
- *   FEMU_EXP_LOG   non-empty -> emit [EXP] log lines to stderr
- *   FEMU_SECRET    a marker string; only pages whose backend bytes contain it are
- *                  tracked and logged, to keep the output focused
- *   FEMU_DUMP_LPN  hex-dump this LPN's backend page on every read
- * stderr is used so the output stays unbuffered through a tee pipe.
+ * 삭제 데이터 잔존 실험용 계측(debug 전용이며 FTL 동작은 바꾸지 않는다).
+ * 초기화 시 한 번 읽는 환경 변수로 활성화한다.
+ *   FEMU_EXP_LOG   비어 있지 않으면 stderr에 [EXP] log 출력
+ *   FEMU_SECRET    marker string을 포함한 backend page만 추적하고 log 출력
+ *   FEMU_DUMP_LPN  매 read마다 해당 LPN의 backend page를 hex dump
+ * tee pipe를 거쳐도 출력이 buffering되지 않도록 stderr를 사용한다.
  */
 static bool exp_log_enabled;
-static const char *exp_secret;       /* NULL, or the (non-empty) marker string */
+static const char *exp_secret;       /* NULL 또는 비어 있지 않은 marker string */
 static uint64_t exp_dump_lpn;
 static bool exp_dump_lpn_set;
 
@@ -399,8 +421,8 @@ static void exp_load_cfg(void)
                    (unsigned)(p)->g.pl, (unsigned)(p)->g.blk, (unsigned)(p)->g.pg
 
 /*
- * Hex+ASCII dump of one LPN's bytes from the DRAM backend. Note: the data lives
- * at the LBA offset (lpn * page_bytes) in the logical space, not at a PPA.
+ * DRAM backend에서 한 LPN의 byte를 Hex+ASCII로 dump한다.
+ * 데이터는 PPA가 아니라 logical space의 LBA offset(lpn * page_bytes)에 있다.
  */
 static void femu_dbg_dump_lpn(struct ssd *ssd, uint64_t lpn)
 {
@@ -438,7 +460,7 @@ static void femu_dbg_dump_lpn(struct ssd *ssd, uint64_t lpn)
     }
 }
 
-/* Scan the whole backend for the marker string and report which LPN holds it. */
+/* 전체 backend를 검사해 marker string이 들어 있는 LPN을 출력한다. */
 static void femu_dbg_scan_secret(struct ssd *ssd, const char *tag)
 {
     const char *sec = exp_secret;
@@ -468,11 +490,11 @@ static void femu_dbg_scan_secret(struct ssd *ssd, const char *tag)
         fprintf(stderr, "[SCAN:%s] '%s' NOT present in backend\n", tag, sec);
 }
 
-/* Track only the LPNs/blocks that carry the marker, to keep the log focused. */
+/* 불필요한 log를 줄이기 위해 marker가 있는 LPN/block만 추적한다. */
 #define EXP_MAX_WATCH 256
 static uint64_t exp_watch_lpn[EXP_MAX_WATCH];
 static int exp_watch_lpn_cnt = 0;
-static uint8_t exp_watch_blk[1 << BLK_BITS]; /* block (line) id -> watched? */
+static uint8_t exp_watch_blk[1 << BLK_BITS]; /* block(line) id의 추적 여부 */
 
 static bool exp_lpn_watched(uint64_t lpn)
 {
@@ -490,7 +512,7 @@ static void exp_watch_lpn_add(uint64_t lpn)
         exp_watch_lpn[exp_watch_lpn_cnt++] = lpn;
 }
 
-/* Does this LPN's backend page currently contain the marker string? */
+/* 이 LPN의 backend page에 현재 marker string이 있는지 확인한다. */
 static bool femu_dbg_lpn_has_secret(struct ssd *ssd, uint64_t lpn)
 {
     const char *sec = exp_secret;
@@ -516,12 +538,15 @@ static bool femu_dbg_lpn_has_secret(struct ssd *ssd, uint64_t lpn)
 }
 
 /*
- * ssd_advance_status now lives in the NAND media-layer bridge
- * (hw/femu/bbssd/ftl-media.c), which runs the same flat per-LUN read/program/
- * erase timing through the uniform nand_media API.
+ * ssd_advance_status는 현재 NAND media-layer bridge인
+ * hw/femu/bbssd/ftl-media.c에 있다. 동일한 per-LUN read/program/erase
+ * timing을 공통 nand_media API를 통해 계산한다.
  */
 
-/* update SSD status about one page from PG_VALID -> PG_INVALID */
+/*
+ * overwrite/TRIM된 page를 PG_VALID -> PG_INVALID로 바꾼다.
+ * page뿐 아니라 block과 line의 vpc(valid)는 줄이고 ipc(invalid)는 늘린다.
+ */
 static void mark_page_invalid(struct ssd *ssd, struct ppa *ppa)
 {
     struct line_mgmt *lm = &ssd->lm;
@@ -531,19 +556,19 @@ static void mark_page_invalid(struct ssd *ssd, struct ppa *ppa)
     bool was_full_line = false;
     struct line *line;
 
-    /* update corresponding page status */
+    /* 해당 page 상태 갱신 */
     pg = get_pg(ssd, ppa);
     ftl_assert(pg->status == PG_VALID);
     pg->status = PG_INVALID;
 
-    /* update corresponding block status */
+    /* 해당 block의 valid/invalid page 수 갱신 */
     blk = get_blk(ssd, ppa);
     ftl_assert(blk->ipc >= 0 && blk->ipc < spp->pgs_per_blk);
     blk->ipc++;
     ftl_assert(blk->vpc > 0 && blk->vpc <= spp->pgs_per_blk);
     blk->vpc--;
 
-    /* update corresponding line status */
+    /* 해당 line의 valid/invalid page 수 갱신 */
     line = get_line(ssd, ppa);
     ftl_assert(line->ipc >= 0 && line->ipc < spp->pgs_per_line);
     if (line->vpc == spp->pgs_per_line) {
@@ -552,16 +577,16 @@ static void mark_page_invalid(struct ssd *ssd, struct ppa *ppa)
     }
     line->ipc++;
     ftl_assert(line->vpc > 0 && line->vpc <= spp->pgs_per_line);
-    /* Adjust the position of the victime line in the pq under over-writes */
+    /* overwrite 후 변경된 vpc에 맞춰 victim line의 pq 위치 조정 */
     if (line->pos) {
-        /* Note that line->vpc will be updated by this call */
+        /* 이 호출 내부에서 line->vpc도 갱신된다. */
         pqueue_change_priority(lm->victim_line_pq, line->vpc - 1, line);
     } else {
         line->vpc--;
     }
 
     if (was_full_line) {
-        /* move line: "full" -> "victim" */
+        /* line을 full list에서 victim pq로 이동 */
         QTAILQ_REMOVE(&lm->full_line_list, line, entry);
         lm->full_line_cnt--;
         pqueue_insert(lm->victim_line_pq, line);
@@ -569,28 +594,30 @@ static void mark_page_invalid(struct ssd *ssd, struct ppa *ppa)
     }
 }
 
+/* 새로 기록한 page를 PG_FREE -> PG_VALID로 바꾸고 vpc를 늘린다. */
 static void mark_page_valid(struct ssd *ssd, struct ppa *ppa)
 {
     struct nand_block *blk = NULL;
     struct nand_page *pg = NULL;
     struct line *line;
 
-    /* update page status */
+    /* page 상태 갱신 */
     pg = get_pg(ssd, ppa);
     ftl_assert(pg->status == PG_FREE);
     pg->status = PG_VALID;
 
-    /* update corresponding block status */
+    /* 해당 block의 valid page 수 갱신 */
     blk = get_blk(ssd, ppa);
     ftl_assert(blk->vpc >= 0 && blk->vpc < ssd->sp.pgs_per_blk);
     blk->vpc++;
 
-    /* update corresponding line status */
+    /* 해당 line의 valid page 수 갱신 */
     line = get_line(ssd, ppa);
     ftl_assert(line->vpc >= 0 && line->vpc < ssd->sp.pgs_per_line);
     line->vpc++;
 }
 
+/* erase가 끝난 block의 모든 page와 vpc/ipc를 free 상태로 초기화한다. */
 static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
 {
     struct ssdparams *spp = &ssd->sp;
@@ -598,13 +625,13 @@ static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
     struct nand_page *pg = NULL;
 
     for (int i = 0; i < spp->pgs_per_blk; i++) {
-        /* reset page status */
+        /* page 상태 초기화 */
         pg = &blk->pg[i];
         ftl_assert(pg->nsecs == spp->secs_per_pg);
         pg->status = PG_FREE;
     }
 
-    /* reset block status */
+    /* block 상태 초기화 */
     ftl_assert(blk->npgs == spp->pgs_per_blk);
     blk->ipc = 0;
     blk->vpc = 0;
@@ -616,7 +643,7 @@ static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
 
 static void gc_read_page(struct ssd *ssd, struct ppa *ppa)
 {
-    /* advance ssd status, we don't care about how long it takes */
+    /* GC read의 NAND 상태를 진행한다. 반환 지연 값 자체는 사용하지 않는다. */
     if (ssd->sp.enable_gc_delay) {
         struct nand_cmd gcr;
         gcr.type = GC_IO;
@@ -626,7 +653,10 @@ static void gc_read_page(struct ssd *ssd, struct ppa *ppa)
     }
 }
 
-/* move valid page data (already in DRAM) from victim line to a new page */
+/*
+ * victim의 valid page를 새 PPA로 이동한다.
+ * rmap으로 기존 LPN을 찾고 maptbl/rmap을 새 PPA에 맞게 갱신한다.
+ */
 static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
 {
     struct ppa new_ppa;
@@ -635,19 +665,19 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
 
     ftl_assert(valid_lpn(ssd, lpn));
     new_ppa = get_new_page(ssd);
-    /* update maptbl */
+    /* LPN -> 새 PPA 갱신 */
     set_maptbl_ent(ssd, lpn, &new_ppa);
-    /* update rmap */
+    /* 새 PPA -> LPN 갱신 */
     set_rmap_ent(ssd, lpn, &new_ppa);
     if (exp_lpn_watched(lpn)) {
-        exp_watch_blk[new_ppa.g.blk] = 1; /* track the new block too */
+        exp_watch_blk[new_ppa.g.blk] = 1; /* 이동한 새 block도 추적 */
         EXP_LOG("[GC_MOVE] lpn=%lu " PPA_FMT " -> " PPA_FMT "\n",
                 lpn, PPA_ARG(old_ppa), PPA_ARG(&new_ppa));
     }
 
     mark_page_valid(ssd, &new_ppa);
 
-    /* need to advance the write pointer here */
+    /* 새 PPA를 사용했으므로 write pointer 이동 */
     ssd_advance_write_pointer(ssd);
 
     if (ssd->sp.enable_gc_delay) {
@@ -658,7 +688,7 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
         ssd_advance_status(ssd, &new_ppa, &gcw);
     }
 
-    /* advance per-ch gc_endtime as well */
+    /* channel의 gc_endtime 갱신 코드(현재 비활성화) */
 #if 0
     new_ch = get_ch(ssd, &new_ppa);
     new_ch->gc_endtime = new_ch->next_ch_avail_time;
@@ -670,6 +700,10 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
     return 0;
 }
 
+/*
+ * victim priority queue에서 valid page 수가 적은 line을 고른다.
+ * 일반 GC는 invalid page가 line의 1/8 미만이면 이동 비용 때문에 건너뛴다.
+ */
 static struct line *select_victim_line(struct ssd *ssd, bool force)
 {
     struct line_mgmt *lm = &ssd->lm;
@@ -688,11 +722,11 @@ static struct line *select_victim_line(struct ssd *ssd, bool force)
     victim_line->pos = 0;
     lm->victim_line_cnt--;
 
-    /* victim_line is a danggling node now */
+    /* 이제 victim_line은 어떤 queue/list에도 속하지 않는다. */
     return victim_line;
 }
 
-/* here ppa identifies the block we want to clean */
+/* victim block을 훑으며 valid page만 새 위치로 복사한다. */
 static void clean_one_block(struct ssd *ssd, struct ppa *ppa)
 {
     struct ssdparams *spp = &ssd->sp;
@@ -702,11 +736,11 @@ static void clean_one_block(struct ssd *ssd, struct ppa *ppa)
     for (int pg = 0; pg < spp->pgs_per_blk; pg++) {
         ppa->g.pg = pg;
         pg_iter = get_pg(ssd, ppa);
-        /* there shouldn't be any free page in victim blocks */
+        /* victim block에는 free page가 없어야 한다. */
         ftl_assert(pg_iter->status != PG_FREE);
         if (pg_iter->status == PG_VALID) {
             gc_read_page(ssd, ppa);
-            /* delay the maptbl update until "write" happens */
+            /* 실제 GC write 시점에 maptbl을 갱신한다. */
             gc_write_page(ssd, ppa);
             cnt++;
         }
@@ -721,11 +755,15 @@ static void mark_line_free(struct ssd *ssd, struct ppa *ppa)
     struct line *line = get_line(ssd, ppa);
     line->ipc = 0;
     line->vpc = 0;
-    /* move this line to free line list */
+    /* 회수한 line을 free line list로 이동 */
     QTAILQ_INSERT_TAIL(&lm->free_line_list, line, entry);
     lm->free_line_cnt++;
 }
 
+/*
+ * line 단위 GC: victim 선택 -> valid page 복사 -> block erase -> free line 회수.
+ * 한 line은 각 channel/LUN에서 block 번호가 같은 block들의 묶음이다.
+ */
 static int do_gc(struct ssd *ssd, bool force)
 {
     struct line *victim_line = NULL;
@@ -744,7 +782,7 @@ static int do_gc(struct ssd *ssd, bool force)
               victim_line->ipc, ssd->lm.victim_line_cnt, ssd->lm.full_line_cnt,
               ssd->lm.free_line_cnt);
 
-    /* copy back valid data */
+    /* victim line의 valid data 복사 */
     for (ch = 0; ch < spp->nchs; ch++) {
         for (lun = 0; lun < spp->luns_per_ch; lun++) {
             ppa.g.ch = ch;
@@ -766,12 +804,16 @@ static int do_gc(struct ssd *ssd, bool force)
         }
     }
 
-    /* update line status */
+    /* erase가 끝난 line을 free 상태로 갱신 */
     mark_line_free(ssd, &ppa);
 
     return 0;
 }
 
+/*
+ * Read: LBA 범위를 LPN으로 바꾸고 maptbl에서 PPA를 찾은 뒤 NAND 지연을 계산한다.
+ * 여러 page의 완료 시간 중 최댓값을 요청 지연으로 반환한다.
+ */
 static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
 {
     struct ssdparams *spp = &ssd->sp;
@@ -790,9 +832,9 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
         return 0;
     }
 
-    /* normal IO read path */
+    /* 일반 user I/O read 경로 */
     for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
-        /* dump the FEMU_DUMP_LPN page on every read (config read once at init) */
+        /* 설정된 FEMU_DUMP_LPN page를 read할 때마다 dump */
         if (exp_dump_lpn_set && lpn == exp_dump_lpn)
             femu_dbg_dump_lpn(ssd, lpn);
 
@@ -815,6 +857,10 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
     return maxlat;
 }
 
+/*
+ * Write(out-of-place update):
+ * old PPA invalid -> new PPA 할당 -> maptbl/rmap 갱신 -> NAND write 지연 계산.
+ */
 static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
 {
     uint64_t lba = req->slba;
@@ -834,8 +880,9 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         return 0;
     }
 
+    /* free line이 매우 부족하면 host write 처리 전에 foreground GC 수행 */
     while (should_gc_high(ssd)) {
-        /* perform GC here until !should_gc(ssd) */
+        /* 긴급 GC 조건이 해소될 때까지 GC 수행 */
         r = do_gc(ssd, true);
         if (r == -1)
             break;
@@ -844,7 +891,7 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
         ppa = get_maptbl_ent(ssd, lpn);
         if (mapped_ppa(&ppa)) {
-            /* update old page information first */
+            /* 같은 LPN의 이전 물리 page는 더 이상 최신 데이터가 아니다. */
             if (exp_lpn_watched(lpn))
                 EXP_LOG("[INVALIDATE:overwrite] lpn=%lu old " PPA_FMT "\n",
                         lpn, PPA_ARG(&ppa));
@@ -852,15 +899,13 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
             set_rmap_ent(ssd, INVALID_LPN, &ppa);
         }
 
-        /* new write */
+        /* 새 PPA를 배정하고 양방향 mapping을 함께 갱신한다. */
         ppa = get_new_page(ssd);
-        /* update maptbl */
         set_maptbl_ent(ssd, lpn, &ppa);
-        /* update rmap */
         set_rmap_ent(ssd, lpn, &ppa);
 
         mark_page_valid(ssd, &ppa);
-        /* only log + track pages that carry the marker string */
+        /* marker string이 있는 page만 log와 추적 대상에 포함 */
         if (femu_dbg_lpn_has_secret(ssd, lpn)) {
             exp_watch_lpn_add(lpn);
             exp_watch_blk[ppa.g.blk] = 1;
@@ -868,14 +913,14 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
                     lpn, PPA_ARG(&ppa));
         }
 
-        /* need to advance the write pointer here */
+        /* 현재 PPA를 사용했으므로 다음 free page로 이동한다. */
         ssd_advance_write_pointer(ssd);
 
         struct nand_cmd swr;
         swr.type = USER_IO;
         swr.cmd = NAND_WRITE;
         swr.stime = req->stime;
-        /* get latency statistics */
+        /* NAND write 완료 지연 계산 */
         curlat = ssd_advance_status(ssd, &ppa, &swr);
         maxlat = (curlat > maxlat) ? curlat : maxlat;
     }
@@ -883,6 +928,10 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     return maxlat;
 }
 
+/*
+ * TRIM: 요청 LPN의 mapping을 해제하고 기존 page를 invalid로 만든다.
+ * 여기서는 즉시 erase하지 않으며 공간 회수는 이후 GC가 담당한다.
+ */
 static uint64_t ssd_trim(struct ssd *ssd, NvmeRequest *req)
 {
     struct ssdparams *spp = &ssd->sp;
@@ -916,34 +965,32 @@ static uint64_t ssd_trim(struct ssd *ssd, NvmeRequest *req)
         // ftl_debug("TRIM Range %d: LBA %lu + %u sectors, LPN range %lu-%lu (%lu pages), cattr=0x%x\n", 
         //        range_idx, slba, nlb, start_lpn, end_lpn, end_lpn - start_lpn + 1, cattr);
 
-        // Boundary check
+        /* 장치 범위를 벗어난 DSM range는 건너뛴다. */
         if (end_lpn >= spp->tt_pgs) {
             ftl_err("TRIM: Range %d exceeds FTL capacity - end_lpn=%lu, tt_pgs=%d\n", 
                    range_idx, end_lpn, spp->tt_pgs);
             total_out_of_bounds++;
-            continue;  // Skip this range, continue with others
+            continue;  /* 현재 range를 건너뛰고 다음 range 처리 */
         }
 
-        // Process each LPN in this range
+        /* range에 포함된 LPN의 양방향 mapping을 하나씩 해제한다. */
         for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
             ppa = get_maptbl_ent(ssd, lpn);
             
-            // Skip already unmapped/invalid pages
+            /* 이미 mapping이 없으면 상태 변경 없이 넘어간다. */
             if (!mapped_ppa(&ppa) || !valid_ppa(ssd, &ppa)) {
                 already_invalid++;
                 continue;
             }
 
-            // Invalidate the existing mapped page
+            /* 실제 page는 invalid, LPN->PPA와 PPA->LPN은 모두 해제한다. */
             if (exp_lpn_watched(lpn))
                 EXP_LOG("[INVALIDATE:trim] lpn=%lu old " PPA_FMT "\n",
                         lpn, PPA_ARG(&ppa));
             mark_page_invalid(ssd, &ppa);
 
-            // Clear reverse mapping
             set_rmap_ent(ssd, INVALID_LPN, &ppa);
             
-            // Set mapping table entry as unmapped
             ppa.ppa = UNMAPPED_PPA;
             set_maptbl_ent(ssd, lpn, &ppa);
             
@@ -960,23 +1007,26 @@ static uint64_t ssd_trim(struct ssd *ssd, NvmeRequest *req)
     // ftl_debug("TRIM: Completed - %d pages trimmed, %d already invalid, %d out of bounds across %d ranges\n", 
     //        total_trimmed_pages, total_already_invalid, total_out_of_bounds, nr_ranges);
 
-    // Free the ranges array
+    /* nvme_dsm()에서 요청별로 할당한 range 배열을 반환한다. */
     g_free(ranges);
     req->dsm_ranges = NULL;
     req->dsm_nr_ranges = 0;
     req->dsm_attributes = 0;
 
-    /* right after a TRIM, check whether the marker still remains in the backend */
+    /* TRIM 직후 backend에 marker가 남아 있는지 확인 */
     if (exp_log_enabled)
         femu_dbg_scan_secret(ssd, "after_trim");
 
-    return 0;  // Assume TRIM operations have no NAND latency
+    return 0;  /* 이 모델에서 TRIM 자체의 NAND 지연은 0 */
 }
 
-/* ========== FDP FTL Implementation ========== */
+/*
+ * ========== FDP FTL 구현 ==========
+ * 기본 bbssd 흐름만 공부한다면 이 구간은 건너뛰고 ftl_thread()로 이동한다.
+ */
 
 /*
- * get_next_free_ru - dequeue a free RU from a reclaim group
+ * get_next_free_ru - reclaim group의 free list에서 RU 하나를 꺼낸다.
  */
 static FemuReclaimUnit *get_next_free_ru(struct ssd *ssd,
                                          FemuReclaimGroup *rg)
@@ -996,7 +1046,7 @@ static FemuReclaimUnit *get_next_free_ru(struct ssd *ssd,
 }
 
 /*
- * fdp_set_ru_write_pointer - reset RU write pointer to first line
+ * fdp_set_ru_write_pointer - RU write pointer를 첫 line으로 초기화한다.
  */
 static void fdp_set_ru_write_pointer(struct ssd *ssd, FemuReclaimUnit *ru)
 {
@@ -1012,7 +1062,7 @@ static void fdp_set_ru_write_pointer(struct ssd *ssd, FemuReclaimUnit *ru)
 }
 
 /*
- * fdp_get_new_ru - allocate a fresh free RU for a given RUH
+ * fdp_get_new_ru - 지정한 RUH에 새 free RU를 할당한다.
  */
 static FemuReclaimUnit *fdp_get_new_ru(struct ssd *ssd, uint16_t rgidx,
                                        uint16_t ruhid)
@@ -1037,7 +1087,7 @@ static FemuReclaimUnit *fdp_get_new_ru(struct ssd *ssd, uint16_t rgidx,
     fdp_set_ru_write_pointer(ssd, new_ru);
     eruh->ru_in_use_cnt++;
 
-    /* update NvmeRuHandle to reflect the new active RU's ruamw */
+    /* NvmeRuHandle에 새 active RU의 ruamw를 반영 */
     if (eruh->ruh && eruh->ruh->rus) {
         eruh->ruh->rus[rgidx] = new_ru->nvme_ru;
     }
@@ -1047,7 +1097,7 @@ static FemuReclaimUnit *fdp_get_new_ru(struct ssd *ssd, uint16_t rgidx,
 }
 
 /*
- * fdp_get_new_page - get next PPA from an RU's write pointer
+ * fdp_get_new_page - RU의 write pointer에서 다음 PPA를 얻는다.
  */
 static struct ppa fdp_get_new_page(struct ssd *ssd, FemuReclaimUnit *ru)
 {
@@ -1069,9 +1119,9 @@ static struct ppa fdp_get_new_page(struct ssd *ssd, FemuReclaimUnit *ru)
 }
 
 /*
- * fdp_advance_ru_pointer - advance RU write pointer. When RU fills up,
- * move it to victim/full list and allocate a new RU for the RUH.
- * Returns the (possibly new) current RU.
+ * fdp_advance_ru_pointer - RU write pointer를 이동한다. RU가 가득 차면
+ * victim/full 자료구조로 옮기고 해당 RUH에 새 RU를 할당한다.
+ * 이동 후 current RU를 반환하며 새 RU일 수도 있다.
  */
 static FemuReclaimUnit *fdp_advance_ru_pointer(struct ssd *ssd,
                                                FemuReclaimGroup *rg,
@@ -1083,7 +1133,7 @@ static FemuReclaimUnit *fdp_advance_ru_pointer(struct ssd *ssd,
     struct write_pointer *wpp = ru->ssd_wptr;
     FemuReclaimUnit *new_ru = NULL;
     bool is_full = true;
-    bool ru_exhausted = false; /* set when we cross the RU boundary */
+    bool ru_exhausted = false; /* RU 경계를 넘었는지 표시 */
 
     check_addr(wpp->ch, spp->nchs);
     wpp->ch++;
@@ -1096,10 +1146,10 @@ static FemuReclaimUnit *fdp_advance_ru_pointer(struct ssd *ssd,
             check_addr(wpp->pg, spp->pgs_per_blk);
             wpp->pg++;
             if (wpp->pg == spp->pgs_per_blk) {
-                //if (ru->next_line_index == ru->n_lines) { - TODO when ru 1->1..* mutliple lines
+                //if (ru->next_line_index == ru->n_lines) { /* TODO: 여러 line으로 구성된 RU 처리 */
                 wpp->pg = 0;
                 ru_exhausted = true;
-                /* RU's line(s) are fully written - classify it */
+                /* RU의 모든 line을 기록했으므로 상태 분류 */
                 for (int i = 0; i < ru->n_lines; i++) {
                     struct line *line = ru->lines[i];
                     if (line->vpc != spp->pgs_per_line) {
@@ -1107,7 +1157,7 @@ static FemuReclaimUnit *fdp_advance_ru_pointer(struct ssd *ssd,
                     }
                 }
 
-                /* update RU vpc from its lines */
+                /* RU에 속한 line의 값을 이용해 RU vpc 갱신 */
                 ru->vpc = 0;
                 for (int i = 0; i < ru->n_lines; i++) {
                     ru->vpc += ru->lines[i]->vpc;
@@ -1127,12 +1177,12 @@ static FemuReclaimUnit *fdp_advance_ru_pointer(struct ssd *ssd,
                         pqueue_insert(rm->victim_ru_cb, ru);
                     }else{
                         pqueue_insert(rm->victim_ru_pq, ru);
-                        //TODO per ruh victim queue - experimental
+                        //TODO: per-RUH victim queue 처리(실험 단계)
                     }
                     rm->victim_ru_cnt++;
                 }
 
-                /* allocate a new RU for this RUH cuase ruh->curr_ru is full */
+                /* ruh->curr_ru가 가득 찼으므로 이 RUH에 새 RU 할당 */
                 if (ruh != NULL) {
                     check_addr(wpp->blk, spp->blks_per_pl);
                     new_ru = fdp_get_new_ru(ssd, ru->rgidx, ruh->ruhid);
@@ -1140,12 +1190,12 @@ static FemuReclaimUnit *fdp_advance_ru_pointer(struct ssd *ssd,
                         ftl_err("No free RU for ruh %d: device full - point %s L:%d\n",
                                 ruh->ruhid, __FILE__, __LINE__);
                         /*
-                         * Signal device pressure: clear curr_ru so
-                         * callers know no active write frontier exists.
+                         * device pressure 표시: active write frontier가 없음을
+                         * caller가 알 수 있도록 curr_ru를 비운다.
                          */
                         ruh->curr_ru = NULL;
                         ftl_assert(false && __LINE__ );
-                        /* TODO */
+                        /* TODO: free RU 고갈 후속 처리 */
                         return NULL;
                     }
                     FDP_TRACE(ssd, "RU_ROTATE ruhid=%u(curr_ru %u) old_ru=%u "
@@ -1164,26 +1214,26 @@ static FemuReclaimUnit *fdp_advance_ru_pointer(struct ssd *ssd,
     }
 
     /*
-     * Return value semantics:
-     *   new_ru non-NULL  → RU boundary crossed, new RU allocated
-     *   NULL             → RU exhausted but no free RU (device full)
-     *   ru               → mid-RU, no boundary crossed yet
+     * 반환값 의미:
+     *   new_ru non-NULL  -> RU 경계를 넘어 새 RU를 할당함
+     *   NULL             -> RU를 다 썼지만 free RU가 없음(device full)
+     *   ru               -> 아직 RU 중간이며 경계를 넘지 않음
      *
-     * We use ru_exhausted to distinguish the "device full" NULL from
-     * the "mid-RU, returning same ru" case.
+     * ru_exhausted로 device full인 NULL과 같은 ru를 반환하는
+     * mid-RU 상황을 구분한다.
      */
     if (new_ru != NULL) {
         return new_ru;
     }
     if (ru_exhausted) {
-        /* RU is now in full_ru_list/victim_pq; signal caller via NULL */
+        /* RU가 full_ru_list/victim_pq로 이동했음을 NULL로 caller에 알린다. */
         return NULL;
     }
     return ru;
 }
 
 /*
- * mark_page_valid_fdp - mark page valid and update RU/line statistics
+ * mark_page_valid_fdp - page를 valid로 표시하고 RU/line 통계를 갱신한다.
  */
 static void mark_page_valid_fdp(struct ssd *ssd, struct ppa *ppa,
                                 FemuReclaimUnit *ru)
@@ -1204,7 +1254,7 @@ static void mark_page_valid_fdp(struct ssd *ssd, struct ppa *ppa,
     ftl_assert(line->vpc >= 0 && line->vpc < ssd->sp.pgs_per_line);
     line->vpc++;
 
-    /* update RU vpc from its line (single-line RU fast path) */
+    /* 해당 line에서 RU vpc 갱신(single-line RU fast path) */
     ftl_assert(line->my_ru == ru);
     if (ru->n_lines == 1) {
         ru->vpc = line->vpc;
@@ -1219,7 +1269,7 @@ static void mark_page_valid_fdp(struct ssd *ssd, struct ppa *ppa,
 }
 
 /*
- * mark_page_invalid_fdp - invalidate a page and update RU/line/victim state
+ * mark_page_invalid_fdp - page를 invalid로 만들고 RU/line/victim 상태를 갱신한다.
  */
 static void mark_page_invalid_fdp(struct ssd *ssd, struct ppa *ppa)
 {
@@ -1233,7 +1283,7 @@ static void mark_page_invalid_fdp(struct ssd *ssd, struct ppa *ppa)
 
     pg = get_pg(ssd, ppa);
     if (pg->status == PG_INVALID) {
-        return;  /* already invalidated */
+        return;  /* 이미 invalid 처리된 page */
     }
     ftl_assert(pg->status == PG_VALID);
     pg->status = PG_INVALID;
@@ -1253,11 +1303,11 @@ static void mark_page_invalid_fdp(struct ssd *ssd, struct ppa *ppa)
     ftl_assert(line->vpc > 0 && line->vpc <= spp->pgs_per_line);
     line->vpc--;
 
-    /* update RU state */
+    /* RU 상태 갱신 */
     ru = line->my_ru;
     ftl_assert(ru != NULL);
     rm = ssd->rg[ru->rgidx].ru_mgmt;
-    /* aggregate ipc across all lines in this RU (n_lines=1 in typical config) */
+    /* 이 RU의 모든 line에 있는 ipc 합산(일반 설정에서는 n_lines=1) */
     ru->ipc = 0;
     for (int li = 0; li < ru->n_lines; li++) {
         ru->ipc += ru->lines[li]->ipc;
@@ -1271,12 +1321,12 @@ static void mark_page_invalid_fdp(struct ssd *ssd, struct ppa *ppa)
     //           (ru->vpc == spp->pgs_per_line * ru->n_lines),
     //           rm->victim_ru_cnt);
 
-    /* check if RU was full and needs to move to victim */
+    /* full RU가 victim으로 이동해야 하는 상황인지 확인 */
     if (ru->vpc == spp->pgs_per_line * ru->n_lines) {
         was_full_ru = true;
     }
 
-    /* update RU vpc and victim queue priority based on GC strategy */
+    /* GC strategy에 따라 RU vpc와 victim queue priority 갱신 */
     ru->vpc--;
     ru->utilization = (ru->vpc + ru->ipc > 0) ?
         (float)ru->vpc / (ru->vpc + ru->ipc) : 0.0f;
@@ -1290,11 +1340,11 @@ static void mark_page_invalid_fdp(struct ssd *ssd, struct ppa *ppa)
             pqueue_change_priority(rm->victim_ru_pq, ru->vpc, ru);
         }
         /*
-         * Only GC_NOISY_RUH_CUSTOM consults the per-RUH victim queue; keep its
-         * ordering in sync there. The per-RUH heap indexes via ruh_pos, so it
-         * no longer aliases the global queue's pos (issue #189). ruh_pos != 0
-         * is a valid "in per-RUH queue" marker here because, for this strategy,
-         * every per-RUH pop/remove is paired with a ruh_pos reset.
+         * per-RUH victim queue는 GC_NOISY_RUH_CUSTOM만 참조하므로 이 queue의
+         * 정렬도 함께 맞춘다. per-RUH heap은 ruh_pos로 indexing하므로 global
+         * queue의 pos와 충돌하지 않는다(issue #189). 이 strategy에서는 모든
+         * per-RUH pop/remove마다 ruh_pos를 reset하므로 ruh_pos != 0을
+         * "per-RUH queue에 들어 있음"을 나타내는 값으로 사용할 수 있다.
          */
         if (rm->mgmt_type == GC_NOISY_RUH_CUSTOM && ru->ruh_pos &&
             ru->ruh && ru->ruh->ru_mgmt) {
@@ -1306,10 +1356,10 @@ static void mark_page_invalid_fdp(struct ssd *ssd, struct ppa *ppa)
             pqueue_insert(rm->victim_ru_pq, ru);
             rm->victim_ru_cnt++;
             /*
-             * Mirror into the per-RUH queue ONLY for the strategy that reads it
-             * (GC_NOISY_RUH_CUSTOM). GREEDY/RAND never pop the per-RUH queue, so
-             * a second membership there would just go stale on the global pop
-             * and later corrupt that heap (issue #189).
+             * per-RUH queue를 사용하는 GC_NOISY_RUH_CUSTOM strategy에서만
+             * 같은 RU를 이 queue에도 넣는다. GREEDY/RAND는 per-RUH queue에서
+             * pop하지 않으므로 이중 등록하면 global pop 뒤 stale entry가 남아
+             * 나중에 heap을 손상시킨다(issue #189).
              */
             if (rm->mgmt_type == GC_NOISY_RUH_CUSTOM &&
                 ru->ruh && ru->ruh->ru_mgmt) {
@@ -1338,7 +1388,7 @@ static void mark_page_invalid_fdp(struct ssd *ssd, struct ppa *ppa)
         break;
 
     default:
-        //Greedy
+        // Greedy 방식
         ftl_err( "Undefined rg mgmt type (rm->mgmt_type %d). Fallback to Greedy.\n",
               rm->mgmt_type);
         if (ru->pos) {
@@ -1357,12 +1407,12 @@ static void mark_page_invalid_fdp(struct ssd *ssd, struct ppa *ppa)
     
 }
 
-//check ru->gc_write_ptr to check or align. 
+// ru->gc_write_ptr의 상태와 정렬 여부 확인
 static int check_gc_ruh_available(struct ssd *ssd, FemuRuHandle * ruh){
     /*
-     * The destination RG is derived from ruh->curr_ru; if this RUH has no active
-     * RU (fill exhausted it), there is nothing to derive it from and no space to
-     * reclaim into, so report failure instead of dereferencing NULL.
+     * destination RG는 ruh->curr_ru에서 구한다. write로 RU를 모두 소진해
+     * 이 RUH에 active RU가 없으면 RG를 구할 수도, reclaim data를 쓸 공간도
+     * 없으므로 NULL을 역참조하지 않고 실패를 반환한다.
      */
     if (ruh->curr_ru == NULL) {
         return -1;
@@ -1371,11 +1421,11 @@ static int check_gc_ruh_available(struct ssd *ssd, FemuRuHandle * ruh){
         if(ssd->ruhs[ssd->nruhs - 1].curr_ru == NULL){
             ssd->ruhs[ssd->nruhs - 1].curr_ru = fdp_get_new_ru(ssd, ruh->curr_ru->rgidx, ruh->ruhid);
             ssd->ruhs[ssd->nruhs - 1].rus[ssd->ruhs[ssd->nruhs - 1].curr_ru->rgidx] = ssd->ruhs[ssd->nruhs - 1].curr_ru;
-            //Not neccesary I think for now
+            // 현재는 필요하지 않은 것으로 보임
             ssd->ruhs[ssd->nruhs - 1].ruh->rus[ssd->ruhs[ssd->nruhs - 1].curr_ru->rgidx] = ssd->ruhs[ssd->nruhs - 1].curr_ru->nvme_ru;  //qemu-system-x86_64: ../hw/femu/bbssd/ftl.c:2106: select_victim_ru: Assertion `victim_ru != ((void *)0)' failed.
         }
         if (ssd->ruhs[ssd->nruhs - 1].curr_ru == NULL){
-            //This means no space left
+            // 남은 공간이 없음을 의미
             return -1;
         }
 
@@ -1385,7 +1435,7 @@ static int check_gc_ruh_available(struct ssd *ssd, FemuRuHandle * ruh){
             ruh->gc_ru = fdp_get_new_ru(ssd, ruh->curr_ru->rgidx, ruh->ruhid);
             ftl_debug("check_gc_ruh_available ruh %d gc_ru idx %d , %p call new ru  \n", ruh->ruhid, ruh->gc_ru->ruidx, ruh->gc_ru );
             if (ruh->gc_ru == NULL){
-                //assert(ruh->gc_ru != NULL);//This means no space left
+                //assert(ruh->gc_ru != NULL); /* 남은 공간이 없음을 의미 */
                 return -1;
             }
         }
@@ -1397,7 +1447,7 @@ static int check_gc_ruh_available(struct ssd *ssd, FemuRuHandle * ruh){
 }
 
 /*
- * select_victim_ru_from_ruh - pick victim from a specific RUH's queue
+ * select_victim_ru_from_ruh - 특정 RUH의 queue에서 victim을 선택한다.
  */
 static FemuReclaimUnit *select_victim_ru_from_ruh(struct ssd *ssd,
                                                    uint16_t rgid,
@@ -1413,12 +1463,12 @@ static FemuReclaimUnit *select_victim_ru_from_ruh(struct ssd *ssd,
     victim_ru = pqueue_pop(ru_mgmt->victim_ru_pq);
     if (victim_ru) {
         /*
-         * pqueue_pop does not clear the popped element's stored index, so reset
-         * ruh_pos to keep it a truthful "not in per-RUH queue" marker (same
-         * discipline as the NOISY path). Without this, a later change_priority
-         * or insert could act on a stale per-RUH index -- the issue #189 bug
-         * class. Dormant today (no strategy fills the per-RUH queue on this
-         * path) but hardened for when one does.
+         * pqueue_pop은 pop한 element에 저장된 index를 지우지 않는다. 따라서
+         * ruh_pos가 실제로 "per-RUH queue에 없음"을 나타내도록 reset한다
+         * (NOISY 경로와 동일한 규칙). 그렇지 않으면 이후 change_priority나
+         * insert가 stale per-RUH index를 사용해 issue #189 유형의 버그를 만든다.
+         * 현재 이 경로에서 per-RUH queue를 채우는 strategy는 없지만 향후 사용을
+         * 고려해 일관성을 보장한다.
          */
         victim_ru->ruh_pos = 0;
         ru_mgmt->victim_ru_cnt--;
@@ -1427,7 +1477,7 @@ static FemuReclaimUnit *select_victim_ru_from_ruh(struct ssd *ssd,
 }
 
 /*
- * select_victim_ru - pick best victim RU based on configured GC strategy
+ * select_victim_ru - 설정된 GC strategy에 따라 가장 적합한 victim RU를 고른다.
  */
 static FemuReclaimUnit *select_victim_ru(struct ssd *ssd, uint16_t rgid,
                                          uint16_t ruhid, bool force)
@@ -1451,8 +1501,8 @@ static FemuReclaimUnit *select_victim_ru(struct ssd *ssd, uint16_t rgid,
 
     case GC_NOISY_RUH_CUSTOM: {
         /*
-         * Cross-RUH selection: find lowest vpc across all RUHs
-         * that exceed their custom GC threshold.
+         * Cross-RUH 선택: custom GC threshold를 넘은 모든 RUH에서
+         * vpc가 가장 낮은 RU를 찾는다.
          */
         FemuReclaimUnit *ru = NULL;
         int best_ruh = -1;
@@ -1479,18 +1529,18 @@ static FemuReclaimUnit *select_victim_ru(struct ssd *ssd, uint16_t rgid,
                 ssd->ruhs[best_ruh].ru_mgmt->victim_ru_pq);
             if (victim_ru) {
                 /*
-                 * pqueue_pop does NOT clear the element's stored index, so reset
-                 * ruh_pos explicitly to keep it a truthful "in per-RUH queue"
-                 * marker (the change_priority guard relies on it).
+                 * pqueue_pop은 element에 저장된 index를 지우지 않으므로
+                 * ruh_pos를 명시적으로 reset한다. change_priority의 guard가
+                 * 이 값을 per-RUH queue 등록 여부로 사용한다.
                  */
                 victim_ru->ruh_pos = 0;
                 ssd->ruhs[best_ruh].ru_mgmt->victim_ru_cnt--;
                 /*
-                 * Also remove from the global queue (uses the still-valid pos);
-                 * the global victim_ru_cnt-- and pos=0 happen at the shared
-                 * cleanup below, so do not touch them here. With nrg>1 the
-                 * per-RUH queue can hold RUs from any RG, so the global twin
-                 * lives in the victim's OWN RG queue, not the caller's rgid.
+                 * 아직 유효한 pos를 사용해 global queue에서도 제거한다.
+                 * global victim_ru_cnt 감소와 pos=0 처리는 아래 공통 cleanup에서
+                 * 수행하므로 여기서는 건드리지 않는다. nrg>1이면 per-RUH queue가
+                 * 어느 RG의 RU든 가질 수 있으므로, global 쪽 동일 entry는 caller의
+                 * rgid가 아니라 victim 자신이 속한 RG queue에 있다.
                  */
                 if (victim_ru->pos) {
                     pqueue_remove(ssd->rg[victim_ru->rgidx].ru_mgmt->victim_ru_pq,
@@ -1498,13 +1548,13 @@ static FemuReclaimUnit *select_victim_ru(struct ssd *ssd, uint16_t rgid,
                 }
             }
         } else {
-            /* fallback to global greedy */
+            /* 선택하지 못하면 global greedy로 fallback */
             victim_ru = pqueue_pop(rm->victim_ru_pq);
             /*
-             * The global-popped RU may still have a per-RUH twin (NOISY mirrors
-             * full RUs into both queues). Drop it from the per-RUH queue here,
-             * using the still-valid ruh_pos, so it does not linger as a stale
-             * entry (later change_priority / duplicate insert on put-back).
+             * global queue에서 pop한 RU가 per-RUH queue에도 남아 있을 수 있다
+             * (NOISY는 full RU를 두 queue에 모두 넣는다). 아직 유효한 ruh_pos로
+             * per-RUH queue에서도 제거해 stale entry가 남지 않게 한다. 남겨 두면
+             * 이후 change_priority 또는 put-back의 중복 insert 문제가 생긴다.
              */
             if (victim_ru && victim_ru->ruh_pos &&
                 victim_ru->ruh && victim_ru->ruh->ru_mgmt) {
@@ -1530,16 +1580,16 @@ static FemuReclaimUnit *select_victim_ru(struct ssd *ssd, uint16_t rgid,
     case GC_SELECTIVE_RUH_ADV:
     case GC_SELECTIVE_MIDAS_OP:
     default:
-        /* fallback to greedy */
+        /* 선택하지 못하면 greedy로 fallback */
         victim_ru = pqueue_pop(rm->victim_ru_pq);
         break;
     }
 
     if (!victim_ru) {
         /*
-         * victim_ru_pq is empty: all in-use RUs are still fully written
-         * with no invalidations yet (e.g., during sequential fill). There is
-         * no victim to reclaim, so returning NULL is the correct behavior.
+         * victim_ru_pq가 비어 있다. 사용 중인 모든 RU가 아직 invalidation 없이
+         * 채워지는 중인 경우다(예: sequential fill). reclaim할 victim이 없으므로
+         * NULL 반환이 정상 동작이다.
          */
         return NULL;
     }
@@ -1548,26 +1598,25 @@ static FemuReclaimUnit *select_victim_ru(struct ssd *ssd, uint16_t rgid,
         int threshold = victim_ru->npages / 8;
         if (victim_ru->ipc < threshold) {
             /*
-             * Delay GC and put the victim back. Cross-RG NOISY selection can
-             * return an RU that belongs to a different reclaim group than the
-             * caller's rgid, so re-insert it into the victim's OWN RG queue --
-             * matching the global removal above and the shared count decrement
-             * below. Using the caller's rm here would charge the entry to the
-             * wrong heap, and its stored pos would then index that wrong array
-             * on a later remove/change_priority, corrupting the queue.
+             * GC를 미루고 victim을 원래 queue에 되돌린다. Cross-RG NOISY 선택은
+             * caller의 rgid와 다른 reclaim group 소속 RU를 반환할 수 있으므로,
+             * 위의 global 제거 및 아래의 공통 count 감소와 일치하도록 victim
+             * 자신이 속한 RG queue에 다시 넣는다. caller의 rm을 사용하면 잘못된
+             * heap에 entry가 기록되고, 저장된 pos가 이후 remove/change_priority에서
+             * 그 잘못된 배열을 가리켜 queue가 손상된다.
              */
             struct ru_mgmt *victim_rm = ssd->rg[victim_ru->rgidx].ru_mgmt;
-            /* put it back */
+            /* victim을 원래 queue에 되돌림 */
             FDP_TRACE(ssd, "GC_BACK_RESERT triggered but delay GC (ru %d ipc %d threshold %d full %d)\n",victim_ru->ruidx, victim_ru->ipc, threshold, victim_ru->npages);
             if (victim_rm->mgmt_type == GC_GLOBAL_CB){
                 pqueue_insert(victim_rm->victim_ru_cb, victim_ru);
             }else{
                 pqueue_insert(victim_rm->victim_ru_pq, victim_ru);
                 /*
-                 * GC_NOISY_RUH_CUSTOM selection popped this RU from BOTH the
-                 * per-RUH and global queues (and zeroed ruh_pos + decremented
-                 * the per-RUH count). Restore the per-RUH membership and count
-                 * too, or they drift out of sync. pqueue_insert re-sets ruh_pos.
+                 * GC_NOISY_RUH_CUSTOM 선택은 이 RU를 per-RUH와 global queue
+                 * 양쪽에서 pop하고 ruh_pos reset 및 per-RUH count 감소까지 했다.
+                 * 두 자료구조가 어긋나지 않도록 per-RUH 등록과 count도 복구한다.
+                 * pqueue_insert가 ruh_pos를 다시 설정한다.
                  */
                 if (victim_rm->mgmt_type == GC_NOISY_RUH_CUSTOM &&
                     victim_ru->ruh && victim_ru->ruh->ru_mgmt) {
@@ -1583,9 +1632,9 @@ static FemuReclaimUnit *select_victim_ru(struct ssd *ssd, uint16_t rgid,
     victim_ru->pos = 0;
     victim_ru->ruh_pos = 0;
     /*
-     * Decrement the count on the victim's OWN reclaim group. For every path
-     * except cross-RG NOISY selection this is the caller's rgid; NOISY can pull
-     * a victim from another RG, whose global count must be the one adjusted.
+     * victim 자신이 속한 reclaim group의 count를 줄인다. cross-RG NOISY 선택을
+     * 제외하면 이 값은 caller의 rgid와 같다. NOISY는 다른 RG에서 victim을
+     * 가져올 수 있으므로, 그 victim이 속한 RG의 global count를 조정해야 한다.
      */
     ssd->rg[victim_ru->rgidx].ru_mgmt->victim_ru_cnt--;
 
@@ -1593,7 +1642,7 @@ static FemuReclaimUnit *select_victim_ru(struct ssd *ssd, uint16_t rgid,
 }
 
 /*
- * gc_write_page_fdp_style - relocate a valid page to a GC destination RU
+ * gc_write_page_fdp_style - valid page를 GC destination RU로 이동한다.
  */
 static void gc_write_page_fdp_style(struct ssd *ssd, struct ppa *old_ppa,
                                     FemuRuHandle *dest_ruh)
@@ -1605,7 +1654,7 @@ static void gc_write_page_fdp_style(struct ssd *ssd, struct ppa *old_ppa,
     FemuReclaimUnit *ret_ru=NULL;
     ftl_assert(valid_lpn(ssd, lpn));
     ftl_assert(dest_ruh!=NULL);
-    /* gc_write_page_fdp_style() guarantees ruh->curr_ru or ->gc_ru wtpr, not new_ru. */
+    /* 이 함수는 new_ru가 아닌 ruh->curr_ru 또는 gc_ru의 write pointer를 사용한다. */
     if (dest_ruh->ruh_type == NVME_RUHT_PERSISTENTLY_ISOLATED)
     {
         dest_ru = dest_ruh->gc_ru;
@@ -1630,14 +1679,13 @@ static void gc_write_page_fdp_style(struct ssd *ssd, struct ppa *old_ppa,
     //           dest_ruh->ruhid);
 
     /*
-     * fdp_advance_ru_pointer() can be called from both the foreground write
-     * path and GC, and only advances the write pointer of the given RU. The
-     * caller is therefore responsible for updating curr_ru / gc_ru by RUH type
-     * right after the advance.
+     * fdp_advance_ru_pointer()는 foreground write와 GC 양쪽에서 호출되며,
+     * 전달받은 RU의 write pointer만 이동한다. 따라서 caller가 이동 직후
+     * RUH type에 맞춰 curr_ru 또는 gc_ru를 갱신해야 한다.
      */
 
     if(dest_ruh->ruh_type == NVME_RUHT_PERSISTENTLY_ISOLATED ){
-        // handle ruh->ru pointer after adv
+        // pointer 이동 후 RUH의 gc_ru 갱신
         if( (ret_ru = fdp_advance_ru_pointer(ssd, &ssd->rg[dest_ru->rgidx], dest_ru->ruh, dest_ru)) != dest_ru){
             dest_ruh->gc_ru = ret_ru;
         }
@@ -1645,7 +1693,7 @@ static void gc_write_page_fdp_style(struct ssd *ssd, struct ppa *old_ppa,
         int gcruh_id = ssd->nruhs-1;
         ftl_assert( dest_ruh->ruhid == gcruh_id );
         if( (ret_ru = fdp_advance_ru_pointer(ssd, &ssd->rg[dest_ru->rgidx], dest_ruh, dest_ru)) != dest_ru ) {
-            //Do ugly updates
+            // II용 GC RUH의 관련 pointer를 함께 갱신
             ssd->ruhs[gcruh_id].rus[dest_ru->rgidx] = ret_ru;
             ssd->ruhs[gcruh_id].curr_ru = ret_ru;
             ssd->ruhs[gcruh_id].ruh->rus[dest_ru->rgidx] = ret_ru->nvme_ru;
@@ -1667,13 +1715,12 @@ static void gc_write_page_fdp_style(struct ssd *ssd, struct ppa *old_ppa,
 }
 
 /*
- * clean_one_block_fdp_style - GC one block: read valid pages and write to new_ru
- * @params 
- *  ppa : identifies the block we want to clean
- *  dest_ruh : destination ruh.
- *          ru based mechanism can cause pointer error when gc write page allocates new ru to ruh->gc. 
- *          Replace ru based parameter which makes ruh->curr_ru or ruh->gc_ru dangling
- *          
+ * clean_one_block_fdp_style - block의 valid page를 읽어 destination RUH로 옮긴다.
+ * @ppa: 정리할 block을 가리키는 PPA
+ * @dest_ruh: GC data를 기록할 RUH
+ *
+ * GC write 중 새 RU가 할당되면 curr_ru/gc_ru가 바뀔 수 있으므로,
+ * 수명이 끝날 수 있는 RU pointer 대신 RUH를 전달한다.
  */
 static int clean_one_block_fdp_style(struct ssd *ssd, struct ppa *ppa,
                                      FemuRuHandle *dest_ruh)
@@ -1697,7 +1744,7 @@ static int clean_one_block_fdp_style(struct ssd *ssd, struct ppa *ppa,
 }
 
 /*
- * mark_ru_free - reset a victim RU to free state after GC
+ * mark_ru_free - GC가 끝난 victim RU를 free 상태로 초기화한다.
  */
 static void mark_ru_free(struct ssd *ssd, uint16_t rgid,
                          FemuReclaimUnit *ru)
@@ -1735,7 +1782,7 @@ static void mark_ru_free(struct ssd *ssd, uint16_t rgid,
 
     fdp_set_ru_write_pointer(ssd, ru);
 
-    /* restore ruamw to initial value */
+    /* ruamw를 초기값으로 복구 */
     ftl_assert(ru->nvme_ru != NULL);
     ftl_assert(ru->ruh != NULL);
     ftl_assert(ru->ruh->ruh != NULL);
@@ -1746,11 +1793,11 @@ static void mark_ru_free(struct ssd *ssd, uint16_t rgid,
 }
 
 /*
- * reinsert_victim_ru - return a fully-popped victim RU to its own reclaim
- * group's victim queue. Used when GC cannot proceed (no free destination RU),
- * so the victim is not orphaned. Reverses the bookkeeping select_victim_ru()
- * performed when it returned this victim, always keying off the victim's own
- * reclaim group so a cross-RG NOISY victim goes back to the right heap.
+ * reinsert_victim_ru - 완전히 pop한 victim RU를 자신이 속한 reclaim group의
+ * victim queue로 되돌린다. free destination RU가 없어 GC를 진행하지 못할 때
+ * victim이 어느 queue에도 속하지 않는 상태가 되는 것을 막는다.
+ * select_victim_ru()의 bookkeeping을 되돌리며, cross-RG NOISY victim도
+ * 올바른 heap으로 돌아가도록 victim 자신의 reclaim group을 기준으로 처리한다.
  */
 static void reinsert_victim_ru(struct ssd *ssd, FemuReclaimUnit *victim_ru)
 {
@@ -1770,9 +1817,9 @@ static void reinsert_victim_ru(struct ssd *ssd, FemuReclaimUnit *victim_ru)
 }
 
 /*
- * do_gc_fdp_style - FDP garbage collection: select victim RU, migrate valid
- * pages to GC RU, then free the victim
- *  gaurantees one RU to be reclaimed, if victim is valid.
+ * do_gc_fdp_style - victim RU 선택 -> valid page를 GC RU로 이동 ->
+ * victim free 순서로 FDP GC를 수행한다.
+ * 유효한 victim을 선택하면 RU 하나를 회수한다.
  */
 static int do_gc_fdp_style(struct ssd *ssd, uint16_t rgid, uint16_t ruhid,
                            bool force)
@@ -1792,47 +1839,29 @@ static int do_gc_fdp_style(struct ssd *ssd, uint16_t rgid, uint16_t ruhid,
     }
 
     /*
-     * Select GC destination RU based on RUH isolation type:
-     * - Initially Isolated (II): GC writes go to the last RUH (GC RUH)
-     * - Persistently Isolated (PI): GC writes go to same RUH's gc_ru
-     */
-    /*
-     * Select GC destination RU.
-     *
-     * Design principle: GC writes compete for the same write frontier
-     * as host writes.  We use the victim RUH's current active RU
-     * (curr_ru) as the GC destination.  This avoids allocating a
-     * dedicated gc_ru, which would consume a free RU and could cause
-     * deadlock when free_ru_cnt is low.
-     *
-     * For PI (Persistently Isolated) RUHs: write migrated pages back
-     * into the same RUH's curr_ru, maintaining stream isolation.
-     * For II (Initially Isolated) RUHs: write to the last RUH's curr_ru
-     * (the convention for II GC isolation).
-     *
-     * If curr_ru is the same as victim_ru (the RUH only has one RU),
-     * we cannot GC without first getting a free RU.  In that case,
-     * if no free RU is available, we skip this victim.
+     * RUH isolation type에 따라 GC destination을 선택한다.
+     * - Initially Isolated(II): 마지막 RUH의 curr_ru에 기록
+     * - Persistently Isolated(PI): victim과 같은 RUH의 전용 gc_ru에 기록
+     * destination RU를 확보할 수 없으면 victim을 queue에 되돌리고 GC를 중단한다.
      */
     FemuRuHandle *victim_ruh = victim_ru->ruh;
     FemuRuHandle *dest_ruh = NULL;
 
     if (victim_ruh->ruh_type == NVME_RUHT_PERSISTENTLY_ISOLATED) {
         dest_ruh = victim_ruh;
-        /* PI RUH: GC writes go to a dedicated gc_ru, distinct from curr_ru. */
+        /* PI RUH: curr_ru와 분리된 전용 gc_ru에 GC data 기록 */
         if ((ret = check_gc_ruh_available(ssd, dest_ruh)) < 0 ){
             /*
-             * No free RU for the GC destination means the device is genuinely
-             * out of reclaimable space. Put the victim back and fail the GC pass
-             * rather than aborting the emulator; the caller degrades to a normal
-             * device-full write outcome.
+             * GC destination으로 쓸 free RU가 없으면 실제로 회수 가능한 공간이
+             * 없는 상태다. emulator를 중단하지 않고 victim을 되돌린 뒤 GC를
+             * 실패 처리해 caller가 일반 device-full write로 처리하게 한다.
              */
             reinsert_victim_ru(ssd, victim_ru);
             return -1;
         }
 
     } else if (victim_ruh->ruh_type == NVME_RUHT_INITIALLY_ISOLATED){
-        /* II RUH: GC writes go to the last RUH's curr_ru. */
+        /* II RUH: 마지막 RUH의 curr_ru에 GC data 기록 */
         dest_ruh = &ssd->ruhs[ssd->nruhs - 1];
         if ((ret = check_gc_ruh_available(ssd, dest_ruh)) < 0 ){
             reinsert_victim_ru(ssd, victim_ru);
@@ -1843,10 +1872,10 @@ static int do_gc_fdp_style(struct ssd *ssd, uint16_t rgid, uint16_t ruhid,
         ftl_assert(false && __LINE__);
     }
     ftl_assert(dest_ruh!=NULL);
-    /* sanity: don't GC an active RU */
+    /* active RU를 victim으로 GC하지 않는지 검증 */
     if (victim_ru == victim_ru->ruh->curr_ru) {
         ftl_err("Victim RU %d is active, skipping GC\n", victim_ru->ruidx);
-        //This is a bug.
+        // active RU가 선택됐다면 GC bookkeeping 오류다.
         ftl_assert(false && __LINE__);
         return -1;
     }
@@ -1857,7 +1886,7 @@ static int do_gc_fdp_style(struct ssd *ssd, uint16_t rgid, uint16_t ruhid,
               (victim_ruh->ruh_type == NVME_RUHT_PERSISTENTLY_ISOLATED) ?
               "PI" : "II", (force) ? "FORCE" : "BACK" );
 
-    /* migrate valid pages from victim RU */
+    /* victim RU의 valid page 이동 */
     for (int i = 0; i < spp->lines_per_ru; i++) {
         struct line *victim_line = victim_ru->lines[i];
         ppa.g.blk = victim_line->id;
@@ -1884,7 +1913,7 @@ static int do_gc_fdp_style(struct ssd *ssd, uint16_t rgid, uint16_t ruhid,
         }
     }
 
-    /* update FDP statistics: media bytes written (GC writes) */
+    /* FDP 통계 갱신: GC로 media에 기록한 byte */
     uint64_t gc_bytes = (uint64_t)vpc_cnt * spp->secsz * spp->secs_per_pg;
     uint64_t erase_bytes = (uint64_t)blk_cnt * spp->secsz * spp->secs_per_pg
                            * spp->pgs_per_blk;
@@ -1904,7 +1933,7 @@ static int do_gc_fdp_style(struct ssd *ssd, uint16_t rgid, uint16_t ruhid,
     }
     ssd->ruhs[victim_ru->ruh->ruhid].ruh_live_pages_cnt -= vpc_cnt;
 
-    /* generate controller event for RU change due to GC */
+    /* GC에 따른 RU 변경 controller event 생성 */
     if (ssd->n->subsys) {
         NvmeEnduranceGroup *endgrp = &ssd->n->subsys->endgrp;
         NvmeRuHandle *nvme_ruh = victim_ru->ruh->ruh;
@@ -1921,17 +1950,17 @@ static int do_gc_fdp_style(struct ssd *ssd, uint16_t rgid, uint16_t ruhid,
     }
 
     /*
-     * Free the victim into its OWN reclaim group. A cross-RG NOISY victim can
-     * differ from the caller's rgid; freeing it into rgid would corrupt the
-     * per-RG free list and later hand a foreign RU out from the wrong group.
-     * For every non-NOISY path victim_ru->rgidx == rgid, so this is a no-op.
+     * victim을 자신이 속한 reclaim group으로 반환한다. cross-RG NOISY victim은
+     * caller의 rgid와 다를 수 있다. caller rgid로 반환하면 per-RG free list가
+     * 손상되고, 나중에 다른 group의 RU를 잘못 할당하게 된다.
+     * non-NOISY 경로에서는 victim_ru->rgidx == rgid이므로 결과가 같다.
      */
     mark_ru_free(ssd, victim_ru->rgidx, victim_ru);
     return 0;
 }
 
 /*
- * ssd_stream_write - FDP write path: placement-aware page allocation
+ * ssd_stream_write - placement 정보를 반영해 page를 할당하는 FDP write 경로
  */
 static uint64_t ssd_stream_write(FemuCtrl *n, struct ssd *ssd,
                                  NvmeRequest *req)
@@ -1951,14 +1980,14 @@ static uint64_t ssd_stream_write(FemuCtrl *n, struct ssd *ssd,
     uint64_t curlat = 0, maxlat = 0;
     int r;
 
-    /* parse placement info from request */
+    /* request에서 placement 정보 해석 */
     uint16_t pid = req->fdp_dspec;
     uint8_t dtype = req->fdp_dtype;
     uint16_t ph, rgid, ruhid;
 
     if (dtype != NVME_DIRECTIVE_DATA_PLACEMENT ||
         !nvme_parse_pid(ns, pid, &ph, &rgid)) {
-        /* generate INVALID_PID event if placement was attempted */
+        /* placement가 요청됐지만 PID가 잘못되면 INVALID_PID event 생성 */
         if (dtype == NVME_DIRECTIVE_DATA_PLACEMENT && ssd->n->subsys) {
             NvmeEnduranceGroup *endgrp = &ssd->n->subsys->endgrp;
             NvmeRuHandle *def_ruh = &endgrp->fdp.ruhs[ns->fdp.phs[0]];
@@ -1977,7 +2006,7 @@ static uint64_t ssd_stream_write(FemuCtrl *n, struct ssd *ssd,
     }
 
     ruhid = ns->fdp.phs[ph];
-    /* safety: ruhid must be within bounds (nvme_parse_pid ensures ph is valid) */
+    /* nvme_parse_pid가 ph를 검증하지만 ruhid 범위도 추가로 확인 */
     if (unlikely(ruhid >= (uint16_t)ssd->nruhs)) {
         ftl_err("ssd_stream_write: ruhid %u >= nruhs %lu, clamping to 0\n",
                 (unsigned)ruhid, (unsigned long)ssd->nruhs);
@@ -1991,20 +2020,20 @@ static uint64_t ssd_stream_write(FemuCtrl *n, struct ssd *ssd,
     //           ph, ruhid, rgid);
 
     /*
-     * Ensure this RUH has an active RU.  After a sequential fill,
-     * curr_ru may be NULL (cleared by fdp_advance_ru_pointer when it
-     * enqueued the last RU into full_ru_list and could not allocate a
-     * fresh one).  Run foreground GC first so we have a free RU.
+     * 이 RUH에 active RU가 있는지 확인한다. sequential fill 뒤 마지막 RU가
+     * full_ru_list에 들어가고 새 RU를 할당하지 못하면
+     * fdp_advance_ru_pointer()가 curr_ru를 NULL로 만든다.
+     * 이 경우 foreground GC로 공간을 먼저 확보한다.
      */
     if (unlikely(!ruh->curr_ru)) {
-        /* try to free space via GC before allocating */
-        //Erase experimental gc behavior
+        /* 새 RU 할당 전에 GC로 공간 회수 시도 */
+        // 실험용 GC 동작 비활성화
         //int max_fg_gc = (int)(ssd->nrg > 0 ?
         //    ssd->rg[0].ru_mgmt->tt_rus : 64);
         //for (int gi = 0; gi < max_fg_gc && !ruh->curr_ru; gi++) {
         //    r = do_gc_fdp_style(ssd, rgid, ruhid, true);
         //    if (r == -1) break;
-            /* GC may have freed a RU; try to grab it */
+            /* GC가 RU를 회수했을 수 있으므로 새 RU 할당 시도 */
             FemuReclaimUnit *fresh = fdp_get_new_ru(ssd, rgid, ruhid);
             if (fresh) {
                 ruh->rus[rgid] = fresh;
@@ -2012,15 +2041,14 @@ static uint64_t ssd_stream_write(FemuCtrl *n, struct ssd *ssd,
                 ruh->curr_ru = fresh;
             }else{
                 ftl_err("NO reclaim Unit. Device is full error\n");
-                //Fallout
+                // 할당 실패 경로
             }
         //}
         if (!ruh->curr_ru) {
             /*
-             * Genuinely out of reclaimable space: the foreground backpressure
-             * GC below could not free a reclaim unit. Fail the command with a
-             * capacity error instead of completing it as success with no data
-             * written.
+             * foreground backpressure GC로도 reclaim unit을 확보하지 못한
+             * 실제 공간 고갈 상태다. data를 쓰지 않고 success로 완료하지 않도록
+             * command를 capacity error로 실패 처리한다.
              */
             ftl_err("ssd_stream_write: device full, no RU for ruh %d\n", ruhid);
             req->status = NVME_CAP_EXCEEDED | NVME_DNR;
@@ -2039,16 +2067,15 @@ static uint64_t ssd_stream_write(FemuCtrl *n, struct ssd *ssd,
     }
 
     /*
-     * Foreground GC backpressure: reclaim until write pressure clears rather
-     * than for a fixed number of passes. Each pass frees at most one reclaim
-     * unit, so the old fixed cap (nrg) let the free-RU pool drain to zero under
-     * sustained overwrites and the write then failed with a spurious device-full.
-     * Running until should_gc_high_fdp_style() reports no pressure holds the
-     * pool above the threshold -- the host write effectively waits on GC, which
-     * is the intended backpressure. do_gc_fdp_style() returns -1 when no victim
-     * remains (nothing left to reclaim); that is the normal exit. The counter is
-     * only a guard against an unexpected non-terminating condition, bounded by
-     * the total reclaim-unit population so it never trips during real progress.
+     * Foreground GC backpressure: 고정 횟수가 아니라 write pressure가
+     * 해소될 때까지 reclaim한다. 한 pass에서 최대 RU 하나만 회수하므로 기존의
+     * 고정 상한(nrg)은 지속적인 overwrite에서 free-RU pool이 0까지 줄어들게 해
+     * 잘못된 device-full을 만들 수 있었다.
+     * should_gc_high_fdp_style()이 pressure 해소를 알릴 때까지 실행하면 host
+     * write가 GC를 기다리며 pool을 threshold 위로 유지한다. victim이 더 없으면
+     * do_gc_fdp_style()이 -1을 반환하며 이는 정상 종료다. 반복 count는 예기치
+     * 않은 무한 반복만 막으며, 실제 진행 중에는 걸리지 않도록 전체 RU 수를
+     * 기준으로 제한한다.
      */
     {
         uint64_t fg_gc_iters = 0;
@@ -2065,16 +2092,13 @@ static uint64_t ssd_stream_write(FemuCtrl *n, struct ssd *ssd,
     }
 
     for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
-        /*
-         * Updating curr_ru should be handled by fdp_advance_ru_pointer() naturally.
-         */
+        /* curr_ru 갱신은 fdp_advance_ru_pointer()가 처리한다. */
         ru = ruh->curr_ru;
         /*
-         * A previous iteration may have exhausted the last free reclaim unit:
-         * fdp_advance_ru_pointer() cleared curr_ru with nothing left to allocate.
-         * Writing into a NULL RU would dereference it in fdp_get_new_page(); stop
-         * and fail the command with a capacity error rather than crashing or
-         * reporting a silent success for pages that were never written.
+         * 이전 반복에서 마지막 free reclaim unit을 소진했을 수 있다.
+         * 더 할당할 RU가 없으면 fdp_advance_ru_pointer()가 curr_ru를 비운다.
+         * NULL RU를 fdp_get_new_page()에서 역참조하지 않도록 중단하고,
+         * crash 또는 실제 write 없는 success 대신 capacity error를 반환한다.
          */
         if (unlikely(!ru)) {
             req->status = NVME_CAP_EXCEEDED | NVME_DNR;
@@ -2086,18 +2110,18 @@ static uint64_t ssd_stream_write(FemuCtrl *n, struct ssd *ssd,
             mark_page_invalid_fdp(ssd, &ppa);
             set_rmap_ent(ssd, INVALID_LPN, &ppa);
         }
-        /* new write */
+        /* 새 PPA에 out-of-place write */
         ppa = fdp_get_new_page(ssd, ru);
         set_maptbl_ent(ssd, lpn, &ppa);
         set_rmap_ent(ssd, lpn, &ppa);
         mark_page_valid_fdp(ssd, &ppa, ru);
 
-        /* decrement ruamw for this RU */
+        /* 이 RU의 남은 ruamw 감소 */
         if (ru->nvme_ru && ru->nvme_ru->ruamw > 0) {
-            ru->nvme_ru->ruamw--; //TODO ? Does this really decrements page KiB?
+            ru->nvme_ru->ruamw--; //TODO: page KiB 단위 감소가 맞는지 확인
         }
 
-        /* advance RU write pointer; may allocate new RU */
+        /* RU write pointer 이동, 필요하면 새 RU 할당 */
         FemuReclaimUnit *ret = fdp_advance_ru_pointer(ssd, rg, ruh, ru);
         if (ret && ret != ruh->curr_ru) {
             ruh->rus[rgid] = ret;
@@ -2106,8 +2130,8 @@ static uint64_t ssd_stream_write(FemuCtrl *n, struct ssd *ssd,
             ru = ret;
         } else if (!ret) {
             /*
-             * fdp_advance_ru_pointer cleared curr_ru (no free RU).
-             * The while loop at the top of next iteration will handle it.
+             * free RU가 없어 fdp_advance_ru_pointer가 curr_ru를 비웠다.
+             * 다음 반복 시작 부분에서 이 상태를 처리한다.
              */
             ru = NULL;
         }
@@ -2124,7 +2148,7 @@ static uint64_t ssd_stream_write(FemuCtrl *n, struct ssd *ssd,
 }
 
 /*
- * nvme_do_write_fdp - top-level FDP write: stats + stream write
+ * nvme_do_write_fdp - FDP write 진입점: 통계 갱신 후 stream write 수행
  */
 uint64_t nvme_do_write_fdp(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
                            uint32_t nlb)
@@ -2134,12 +2158,12 @@ uint64_t nvme_do_write_fdp(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
     struct ssdparams *spp = &ssd->sp;
     uint64_t data_bytes;
 
-    /* update FDP host bytes written stats */
+    /* FDP host bytes written 통계 갱신 */
     data_bytes = (uint64_t)nlb * spp->secsz;
     nvme_fdp_stat_inc(&ns->endgrp->fdp.hbmw, data_bytes);
     nvme_fdp_stat_inc(&ns->endgrp->fdp.mbmw, data_bytes);
 
-    /* per-RUH stats */
+    /* per-RUH 통계 갱신 */
     uint16_t pid = req->fdp_dspec;
     uint8_t dtype = req->fdp_dtype;
     uint16_t ph, rg, ruhid;
@@ -2158,10 +2182,10 @@ uint64_t nvme_do_write_fdp(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
     return ssd_stream_write(n, ssd, req);
 }
 
-/* ========== FDP Init Functions ========== */
+/* ========== FDP 초기화 함수 ========== */
 
 /*
- * femu_fdp_init_ru_mgmt - initialize RU management for a reclaim group
+ * femu_fdp_init_ru_mgmt - reclaim group의 RU 관리 자료구조를 초기화한다.
  */
 static void femu_fdp_init_ru_mgmt(struct ssd *ssd, FemuReclaimGroup *rg)
 {
@@ -2173,7 +2197,7 @@ static void femu_fdp_init_ru_mgmt(struct ssd *ssd, FemuReclaimGroup *rg)
     rm->full_ru_cnt = 0;
     rm->custom_gc_threshold = 0;
 
-    /* default GC strategy */
+    /* 기본 GC strategy */
     rm->mgmt_type = GC_GLOBAL_GREEDY;
 
     rm->is_gc_triggered = false;
@@ -2196,7 +2220,7 @@ static void femu_fdp_init_ru_mgmt(struct ssd *ssd, FemuReclaimGroup *rg)
 }
 
 /*
- * femu_fdp_init_ssd_reclaim_unit - initialize one RU with lines and wptr
+ * femu_fdp_init_ssd_reclaim_unit - 하나의 RU에 line과 write pointer를 초기화한다.
  */
 static void femu_fdp_init_ssd_reclaim_unit(struct ssd *ssd,
                                            FemuReclaimUnit *femu_ru,
@@ -2210,7 +2234,7 @@ static void femu_fdp_init_ssd_reclaim_unit(struct ssd *ssd,
     femu_ru->vpc = 0;
     femu_ru->ipc = 0;
     femu_ru->pos = 0;
-    femu_ru->ruh_pos = 0;     /* not yet in any victim pqueue */
+    femu_ru->ruh_pos = 0;     /* 아직 어떤 victim pqueue에도 등록되지 않음 */
     femu_ru->ssd_wptr = g_malloc0(sizeof(struct write_pointer));
     femu_ru->npages = spp->lines_per_ru * spp->pgs_per_line;
 
@@ -2234,7 +2258,7 @@ static void femu_fdp_init_ssd_reclaim_unit(struct ssd *ssd,
 }
 
 /*
- * femu_fdp_ssd_init_reclaim_group - init all RGs and their RU pools
+ * femu_fdp_ssd_init_reclaim_group - 모든 RG와 각 RU pool을 초기화한다.
  */
 static void femu_fdp_ssd_init_reclaim_group(FemuCtrl *n, struct ssd *ssd)
 {
@@ -2260,7 +2284,7 @@ static void femu_fdp_ssd_init_reclaim_group(FemuCtrl *n, struct ssd *ssd)
         fdp_log("Allocated %lu RUs to rg[%d]\n", tt_nru, i);
     }
 
-    /* link NvmeReclaimUnit pointers and init each SSD-level RU */
+    /* NvmeReclaimUnit pointer를 연결하고 SSD 계층의 각 RU 초기화 */
     NvmeReclaimUnit **russ = subsys->endgrp.fdp.rus;
     if (russ) {
         for (int i = 0; i < (int)rgs; i++) {
@@ -2292,7 +2316,7 @@ static void femu_fdp_ssd_init_reclaim_group(FemuCtrl *n, struct ssd *ssd)
                     i, n->bb_params.gc_thres_pcent_high,
                     rg->ru_mgmt->gc_thres_rus_high, rg->tt_nru);
 
-            /* apply configured GC strategy */
+            /* 설정된 GC strategy 적용 */
             rg->ru_mgmt->mgmt_type = n->bb_params.gc_strategy;
             ftl_log("rg[%d] gc strategy=%d\n", i,
                     rg->ru_mgmt->mgmt_type);
@@ -2301,7 +2325,7 @@ static void femu_fdp_ssd_init_reclaim_group(FemuCtrl *n, struct ssd *ssd)
 }
 
 /*
- * femu_fdp_ssd_init_ru_handles - init FemuRuHandle for each namespace PH
+ * femu_fdp_ssd_init_ru_handles - namespace의 각 PH에 FemuRuHandle을 초기화한다.
  */
 static void femu_fdp_ssd_init_ru_handles(FemuCtrl *n, struct ssd *ssd)
 {
@@ -2329,7 +2353,7 @@ static void femu_fdp_ssd_init_ru_handles(FemuCtrl *n, struct ssd *ssd)
         ssd->ruhs[i].mbmw = 0;
         ssd->ruhs[i].mbe = 0;
 
-        /* allocate per-RG RU pointer array */
+        /* per-RG RU pointer 배열 할당 */
         ssd->ruhs[i].rus = g_malloc0(sizeof(FemuReclaimUnit *) *
                                      endgrp->fdp.nrg);
         for (int j = 0; j < (int)endgrp->fdp.nrg; j++) {
@@ -2338,19 +2362,19 @@ static void femu_fdp_ssd_init_ru_handles(FemuCtrl *n, struct ssd *ssd)
             ssd->ruhs[i].ruh->rus[j] = ssd->ruhs[i].rus[j]->nvme_ru;
         }
         /*
-         * The active RU must match the default reclaim group (rgid 0, curr_rg
-         * 0), not the last one allocated by the loop above. A non-placement
-         * write uses rgid 0, and the write path advances ruh->curr_ru through
-         * ssd->rg[rgid]'s management object. Leaving curr_ru in the last group
-         * (nrg-1) made a default write advance an rg[nrg-1] RU through rg[0]'s
-         * bookkeeping: the RU was enqueued in one group's victim queue but later
-         * looked up via its own group's queue with a stale heap position, a NULL
-         * dereference crash under nrg>1. Cross-group placement writes still need
-         * a per-(RUH,RG) active-RU model; this repairs the default path.
+         * active RU는 위 loop에서 마지막으로 할당한 RU가 아니라 default
+         * reclaim group(rgid 0, curr_rg 0)의 RU와 일치해야 한다. non-placement
+         * write는 rgid 0을 사용하고 ssd->rg[rgid]의 관리 객체를 통해
+         * ruh->curr_ru를 이동한다. curr_ru를 마지막 group(nrg-1)에 두면 default
+         * write가 rg[nrg-1]의 RU를 rg[0] bookkeeping으로 처리한다. 그 결과 RU가
+         * 한 group의 victim queue에 들어간 뒤 stale heap position으로 자기 group의
+         * queue에서 조회되어 nrg>1에서 NULL 역참조 crash가 발생한다.
+         * cross-group placement write에는 여전히 per-(RUH,RG) active-RU model이
+         * 필요하며, 여기서는 default 경로를 바로잡는다.
          */
         ssd->ruhs[i].curr_ru = ssd->ruhs[i].rus[0];
 
-        /* PI type RUHs get their own ru_mgmt for per-RUH victim queues */
+        /* PI type RUH는 per-RUH victim queue용 자체 ru_mgmt를 가진다. */
         if (nvme_ruh->ruht == NVME_RUHT_PERSISTENTLY_ISOLATED) {
             ssd->ruhs[i].ru_mgmt = g_malloc0(sizeof(struct ru_mgmt));
             ssd->ruhs[i].ru_mgmt->mgmt_type = n->bb_params.gc_strategy;
@@ -2360,8 +2384,9 @@ static void femu_fdp_ssd_init_ru_handles(FemuCtrl *n, struct ssd *ssd)
             QTAILQ_INIT(&ssd->ruhs[i].ru_mgmt->free_ru_list);
             QTAILQ_INIT(&ssd->ruhs[i].ru_mgmt->full_ru_list);
             /*
-             * Per-RUH queues index via ruh_pos (see victim_ru_*_pos_ruh) so
-             * they do not alias the per-RG queue's pos (issue #189).
+             * Per-RUH queue는 ruh_pos로 indexing하므로
+             * (victim_ru_*_pos_ruh 참고) per-RG queue의 pos와 충돌하지 않는다
+             * (issue #189).
              */
             ssd->ruhs[i].ru_mgmt->victim_ru_pq =
                 pqueue_init(ssd->rg[0].tt_nru, victim_ru_cmp_pri,
@@ -2381,7 +2406,7 @@ static void femu_fdp_ssd_init_ru_handles(FemuCtrl *n, struct ssd *ssd)
 }
 
 /*
- * ssd_init_fdp_params - compute FDP-specific SSD parameters
+ * ssd_init_fdp_params - FDP 전용 SSD parameter를 계산한다.
  */
 static void ssd_init_fdp_params(struct ssdparams *spp, FemuCtrl *n)
 {
@@ -2389,14 +2414,14 @@ static void ssd_init_fdp_params(struct ssdparams *spp, FemuCtrl *n)
     NvmeEnduranceGroup *endgrp = &subsys->endgrp;
     uint64_t runs = endgrp->fdp.runs;
 
-    /* lines_per_ru: how many lines (superblocks) per reclaim unit */
-    spp->lines_per_ru = 1; /* M1: 1 line per RU for simplicity */
+    /* lines_per_ru: reclaim unit 하나에 포함되는 line(superblock) 수 */
+    spp->lines_per_ru = 1; /* M1에서는 단순화를 위해 RU당 line 1개 사용 */
 
     /*
-     * Compute total RU count from device geometry:
+     * device geometry로 전체 RU 수 계산:
      * total_ru = tt_lines / lines_per_ru
-     * Clamp to endgrp->fdp.nru to avoid overflowing NvmeReclaimUnit array
-     * allocated in nvme_subsys_setup_fdp().
+     * nvme_subsys_setup_fdp()에서 할당한 NvmeReclaimUnit 배열을 넘지 않도록
+     * endgrp->fdp.nru를 상한으로 제한한다.
      */
     spp->total_ru_cnt = spp->tt_lines / spp->lines_per_ru;
 
@@ -2413,7 +2438,7 @@ static void ssd_init_fdp_params(struct ssdparams *spp, FemuCtrl *n)
 }
 
 /*
- * ssd_reset_maptbl - clear entire mapping table (used by FDP trim)
+ * ssd_reset_maptbl - 전체 mapping table을 초기화한다(FDP TRIM에서 사용).
  */
 static void ssd_reset_maptbl(struct ssd *ssd)
 {
@@ -2426,12 +2451,11 @@ static void ssd_reset_maptbl(struct ssd *ssd)
 }
 
 /*
- * ssd_trim_fdp_range - FDP DSM deallocate (default). Invalidate only the logical
- * pages covered by the requested LBA ranges: mark each mapped page invalid via
- * the FDP path (which decrements RU/line vpc and moves the RU onto the victim
- * queue so GC reclaims it), clear the reverse map, and unmap the L2P entry.
- * Erase is left to GC. This matches a normal SSD's deallocate: a host TRIM of a
- * few LBAs must not disturb any other logical data.
+ * ssd_trim_fdp_range - 기본 FDP DSM deallocate 동작. 요청된 LBA range에
+ * 포함된 logical page만 invalid 처리한다. FDP 경로에서 RU/line vpc를 줄이고
+ * RU를 victim queue로 옮긴 뒤, reverse map과 L2P entry를 해제한다.
+ * erase는 GC가 담당한다. 일부 LBA에 대한 host TRIM이 다른 logical data를
+ * 변경하지 않는 일반 SSD의 deallocate 동작과 같다.
  */
 static void ssd_trim_fdp_range(FemuCtrl *n, NvmeRequest *req)
 {
@@ -2479,12 +2503,11 @@ static void ssd_trim_fdp_range(FemuCtrl *n, NvmeRequest *req)
 }
 
 /*
- * ssd_trim_fdp_reset_all - FDP DSM whole-device reset (opt-in via the
- * fdp_trim_erase_all device property, test only). Erases every block, drains all
- * reclaim units, resets all RUH state, and wipes the mapping table. This was the
- * original prototype behavior for a customized non-filesystem fio+trim sweep; it
- * is NOT how DSM-deallocate behaves on a real SSD and ignores the requested LBA
- * range, so it is gated off by default.
+ * ssd_trim_fdp_reset_all - FDP DSM 전체 장치 reset.
+ * test 전용 fdp_trim_erase_all device property로 명시적으로 활성화한다.
+ * 모든 block을 erase하고 reclaim unit과 RUH 상태, mapping table을 초기화한다.
+ * 이는 non-filesystem fio+trim sweep용 초기 prototype 동작으로 요청 LBA range를
+ * 무시하므로 실제 SSD의 DSM deallocate와 다르며 기본값은 비활성화다.
  */
 static void ssd_trim_fdp_reset_all(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
                                    uint32_t nlb)
@@ -2498,7 +2521,7 @@ static void ssd_trim_fdp_reset_all(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
     NvmeRuHandle *ruh;
     int rg_idx;
 
-    /* erase all blocks */
+    /* 모든 block erase */
     for (int ch = 0; ch < spp->nchs; ch++) {
         for (int lun = 0; lun < spp->luns_per_ch; lun++) {
             for (int blk = 0; blk < spp->blks_per_pl; blk++) {
@@ -2520,7 +2543,7 @@ static void ssd_trim_fdp_reset_all(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
         }
     }
 
-    /* drain victim and full RU queues for all reclaim groups */
+    /* 모든 reclaim group의 victim/full RU queue 비우기 */
     for (rg_idx = 0; rg_idx < (int)ssd->nrg; rg_idx++) {
         struct ru_mgmt *rm = ssd->rg[rg_idx].ru_mgmt;
         while ((v_ru = pqueue_peek(rm->victim_ru_pq)) != NULL) {
@@ -2529,12 +2552,12 @@ static void ssd_trim_fdp_reset_all(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
             mark_ru_free(ssd, v_ru->rgidx, v_ru);
         }
         /*
-         * GC_GLOBAL_CB keeps its full victims in victim_ru_cb, not
-         * victim_ru_pq, so drain it too or those RUs leak with a stale
-         * victim_ru_cnt on trim/format. The two queues are mutually exclusive
-         * per RG mode (the inactive one is empty here) and victim_ru_cb indexes
-         * via the same pos field, so this is safe; guard the shared count
-         * against underflow in case it was already inconsistent.
+         * GC_GLOBAL_CB는 full victim을 victim_ru_pq가 아니라 victim_ru_cb에
+         * 보관한다. TRIM/format 시 이 queue도 비우지 않으면 stale
+         * victim_ru_cnt와 함께 RU가 누락된다. RG mode마다 두 queue는 상호
+         * 배타적이며 비활성 queue는 비어 있고, victim_ru_cb도 같은 pos field로
+         * indexing하므로 이 처리는 안전하다. 기존 count가 이미 어긋났을
+         * 가능성에 대비해 shared count의 underflow를 막는다.
          */
         while ((v_ru = pqueue_peek(rm->victim_ru_cb)) != NULL) {
             pqueue_remove(rm->victim_ru_cb, v_ru);
@@ -2550,22 +2573,23 @@ static void ssd_trim_fdp_reset_all(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
         }
     }
 
-    /* reset active RUs and stats for each RUH across all RGs */
+    /* 모든 RG에 걸쳐 각 RUH의 active RU와 통계 초기화 */
     ruh = endgrp->fdp.ruhs;
     for (int i = 0; i < (int)endgrp->fdp.nruh; i++, ruh++) {
         /*
-         * Empty this RUH's victim queue too. The per-RG drain above freed the
-         * RUs (and zeroed their ruh_pos via mark_ru_free), but the per-RUH heap
-         * still physically references them; drop those stale entries so trim
-         * leaves the per-RUH queue consistent (PI RUHs only). The RU objects
-         * are already freed, so just clear the heap and its counter.
+         * 이 RUH의 victim queue도 비운다. 위의 per-RG drain에서 RU를 free하고
+         * mark_ru_free로 ruh_pos를 0으로 만들었지만, per-RUH heap은 여전히 해당
+         * RU를 참조한다. stale entry를 제거해 TRIM 후 per-RUH queue의 일관성을
+         * 유지한다(PI RUH만 해당). RU 객체는 이미 free 상태이므로 heap과
+         * count만 비운다.
          */
         if (ssd->ruhs[i].ru_mgmt && ssd->ruhs[i].ru_mgmt->victim_ru_pq) {
             FemuReclaimUnit *pru;
             /*
-             * pqueue_pop reassigns ruh_pos during percolate_down and never
-             * clears the popped element's own index, so zero it explicitly or
-             * a drained RU keeps a stale ruh_pos and later looks "in queue".
+             * pqueue_pop은 percolate_down 중 ruh_pos를 재할당하지만 pop된
+             * element 자신의 index는 지우지 않는다. 명시적으로 0으로 만들지
+             * 않으면 drain된 RU에 stale ruh_pos가 남아 이후 queue에 있는
+             * 것으로 잘못 판단된다.
              */
             while ((pru = pqueue_pop(ssd->ruhs[i].ru_mgmt->victim_ru_pq))) {
                 pru->ruh_pos = 0;
@@ -2589,7 +2613,7 @@ static void ssd_trim_fdp_reset_all(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
             ssd->ruhs[i].ruh->rus[rg_idx] =
                 ssd->ruhs[i].rus[rg_idx]->nvme_ru;
         }
-        /* primary RG (index 0) is the active one */
+        /* primary RG(index 0)를 active RG로 설정 */
         ssd->ruhs[i].curr_ru = ssd->ruhs[i].rus[0];
     }
 
@@ -2603,10 +2627,10 @@ static void ssd_trim_fdp_reset_all(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
 }
 
 /*
- * ssd_trim_fdp_style - dispatch FDP DSM deallocate. Range-honoring by default;
- * whole-device reset only when the fdp_trim_erase_all knob is set. Frees the
- * per-command DSM range list either way (nvme_dsm() allocates it per command and
- * leaves it for the FTL to release, as ssd_trim() does on the non-FDP path).
+ * ssd_trim_fdp_style - FDP DSM deallocate 경로를 선택한다. 기본은 요청 range만
+ * 처리하며 fdp_trim_erase_all knob가 설정된 경우에만 전체 장치를 reset한다.
+ * 두 경로 모두 command별 DSM range list를 해제한다. 이 list는 nvme_dsm()이
+ * command마다 할당하고 non-FDP의 ssd_trim()과 마찬가지로 FTL이 반환한다.
  */
 static void ssd_trim_fdp_style(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
                                uint32_t nlb)
@@ -2623,6 +2647,10 @@ static void ssd_trim_fdp_style(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
     req->dsm_attributes = 0;
 }
 
+/*
+ * FTL worker: to_ftl dequeue -> opcode 처리 -> 지연 반영 -> to_poller enqueue.
+ * 각 요청을 돌려보낸 뒤 여유 공간이 부족하면 background GC 한 번을 시도한다.
+ */
 static void *ftl_thread(void *arg)
 {
     FemuCtrl *n = (FemuCtrl *)arg;
@@ -2632,11 +2660,12 @@ static void *ftl_thread(void *arg)
     int rc;
     int i;
 
+    /* NVMe dataplane과 poller가 준비될 때까지 FTL 처리를 시작하지 않는다. */
     while (!*(ssd->dataplane_started_ptr)) {
         usleep(100000);
     }
 
-    /* FIXME: not safe, to handle ->to_ftl and ->to_poller gracefully */
+    /* FIXME: to_ftl/to_poller를 안전하게 연결하고 종료하는 처리 필요 */
     ssd->to_ftl = n->to_ftl;
     ssd->to_poller = n->to_poller;
 
@@ -2645,6 +2674,7 @@ static void *ftl_thread(void *arg)
             if (!ssd->to_ftl[i] || !femu_ring_count(ssd->to_ftl[i]))
                 continue;
 
+            /* NVMe poller가 넘긴 요청 한 개를 FTL queue에서 꺼낸다. */
             rc = femu_ring_dequeue(ssd->to_ftl[i], (void *)&req, 1);
             if (rc != 1) {
                 printf("FEMU: FTL to_ftl dequeue failed\n");
@@ -2653,15 +2683,15 @@ static void *ftl_thread(void *arg)
             ftl_assert(req);
             lat = 0;
             /*
-             * A request that already failed validation in the I/O layer is only
-             * routed through the FTL ring so the poller completes it with its
-             * carried error status. It must not run any opcode handler: req->slba
-             * and req->nlb may be stale (the I/O layer returns before setting
-             * them) and ssd_read/ssd_write would then touch unrelated mapping
-             * state and overwrite the error. Leave latency at zero and let the
-             * poller post the carried status.
+             * I/O 계층의 validation에서 이미 실패한 request는 기존 error
+             * status를 poller가 완료 처리하도록 FTL ring만 통과한다. 이 경우
+             * opcode handler를 실행하면 안 된다. I/O 계층이 req->slba와 req->nlb를
+             * 설정하기 전에 반환했을 수 있어 값이 stale할 수 있고, ssd_read/write가
+             * 무관한 mapping 상태를 변경하거나 error를 덮어쓸 수 있기 때문이다.
+             * latency는 0으로 두고 poller가 전달된 status를 CQ에 기록하게 한다.
              */
             if (req->status == NVME_SUCCESS) {
+                /* opcode에 따라 mapping/GC 상태를 바꾸고 NAND 지연을 받는다. */
                 switch (req->cmd.opcode) {
                 case NVME_CMD_WRITE:
                     if (ssd->fdp_enabled) {
@@ -2686,20 +2716,22 @@ static void *ftl_thread(void *arg)
                 }
             }
 
+            /* poller가 완료 시점을 판단할 수 있도록 계산된 지연을 더한다. */
             req->reqlat = lat;
             req->expire_time += lat;
 
+            /* 완료 후보 요청을 원래 NVMe poller 쪽으로 돌려보낸다. */
             rc = femu_ring_enqueue(ssd->to_poller[i], (void *)&req, 1);
             if (rc != 1) {
                 ftl_err("FTL to_poller enqueue failed\n");
             }
 
-            /* background GC */
+            /* host 요청 처리 뒤 일반 임계값을 확인하는 background GC */
             if (ssd->fdp_enabled) {
                 int16_t rgidx;
                 /*
-                 * Trigger a single GC pass on a reclaim group over threshold;
-                 * the GC policy itself lives in do_gc_fdp_style(), not here.
+                 * threshold를 넘은 reclaim group에 GC pass 한 번을 요청한다.
+                 * 실제 GC policy는 여기 아닌 do_gc_fdp_style()에 있다.
                  */
                 if (!((rgidx = should_gc_fdp_style(ssd)) < 0))
                 {
