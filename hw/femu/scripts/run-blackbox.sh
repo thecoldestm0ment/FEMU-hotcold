@@ -11,11 +11,11 @@ OSIMGF=$IMGDIR/u20s.qcow2
 secsz=512 # sector size in bytes
 secs_per_pg=8 # number of sectors in a flash page
 pgs_per_blk=256 # number of pages per flash block
-blks_per_pl=256 # number of blocks per plane
+blks_per_pl=128 # 8 channels x 8 LUNs를 유지하면서 raw NAND를 8 GiB로 구성
 pls_per_lun=1 # keep it at one, no multiplanes support
 luns_per_ch=8 # number of chips per channel
 nchs=8 # number of channels
-ssd_size=12288 # in megabytes, if you change the above layout parameters, make sure you manually recalculate the ssd size and modify it here, please consider a default 25% overprovisioning ratio.
+ssd_size=6144 # 8 GiB raw NAND 중 6 GiB를 host에 노출해 OP 25% 유지
 
 # Latency in nanoseconds
 pg_rd_lat=40000 # page read latency

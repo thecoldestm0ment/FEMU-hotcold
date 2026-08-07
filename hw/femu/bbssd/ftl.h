@@ -306,6 +306,10 @@ struct ssd {
     uint64_t *rmap;     /* reverse mapptbl, assume it's stored in OOB */
     struct write_pointer wp;
     struct line_mgmt lm;
+    /* non-FDP Phase 1: WAF 계산에 필요한 page-write counter */
+    uint64_t host_page_writes;
+    uint64_t nand_page_writes;
+    uint64_t gc_page_writes;
 
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring **to_ftl;
@@ -327,6 +331,7 @@ struct ssd {
 };
 
 void ssd_init(FemuCtrl *n);
+void ssd_print_stats(struct ssd *ssd);
 
 /* NAND media-layer bridge (hw/femu/bbssd/ftl-media.c) */
 void bb_nand_media_init(struct ssd *ssd);

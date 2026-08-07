@@ -30,6 +30,30 @@ static void ssd_reset_maptbl(struct ssd *ssd);
 static void exp_load_cfg(void);
 
 /*
+ * 현재까지 누적된 non-FDP page-write 통계와 WAF를 출력한다.
+ * FEMU_RESET_ACCT admin command가 실험 구간 끝에서 이 함수를 호출한다.
+ */
+void ssd_print_stats(struct ssd *ssd)
+{
+    char waf[32];
+
+    if (ssd->host_page_writes == 0) {
+        snprintf(waf, sizeof(waf), "N/A");
+    } else {
+        snprintf(waf, sizeof(waf), "%.6f",
+                 (double)ssd->nand_page_writes /
+                 (double)ssd->host_page_writes);
+    }
+
+    ftl_log("BBSSD-STATS host_page_writes=%" PRIu64
+            " nand_page_writes=%" PRIu64
+            " gc_page_writes=%" PRIu64
+            " waf=%s\n",
+            ssd->host_page_writes, ssd->nand_page_writes,
+            ssd->gc_page_writes, waf);
+}
+
+/*
  * ftl_fdp_alloc_event - FTL 계층에서 FDP event를 할당한다.
  * GC가 controller event를 생성할 때 사용한다.
  */
@@ -336,6 +360,11 @@ void ssd_init(FemuCtrl *n)
 
     /* data-remanence 실험용 환경 변수를 한 번만 읽는다(debug 전용, 기본 off). */
     exp_load_cfg();
+
+    /* Phase 1 통계는 SSD 초기화부터 누적한다. */
+    ssd->host_page_writes = 0;
+    ssd->nand_page_writes = 0;
+    ssd->gc_page_writes = 0;
 
     ssd_init_params(spp, n);
 
@@ -680,6 +709,12 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
     /* 새 PPA를 사용했으므로 write pointer 이동 */
     ssd_advance_write_pointer(ssd);
 
+    /*
+     * Phase 1 수정
+     */
+    ssd->gc_page_writes++;
+    ssd->nand_page_writes++;
+
     if (ssd->sp.enable_gc_delay) {
         struct nand_cmd gcw;
         gcw.type = GC_IO;
@@ -922,6 +957,9 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         swr.stime = req->stime;
         /* NAND write 완료 지연 계산 */
         curlat = ssd_advance_status(ssd, &ppa, &swr);
+        /* loop가 처리한 LPN 수를 센다. */
+        ssd->host_page_writes++;
+        ssd->nand_page_writes++;
         maxlat = (curlat > maxlat) ? curlat : maxlat;
     }
 

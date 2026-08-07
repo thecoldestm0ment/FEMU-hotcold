@@ -56,6 +56,19 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
         femu_log("%s,FEMU Delay Emulation [Disabled]!\n", n->devname);
         break;
     case FEMU_RESET_ACCT: { // reset the I/O accounting counters
+        /*
+         * 이 admin command를 실험 구간의 경계로 사용한다. 현재 누적값을
+         * 먼저 출력해야 방금 끝난 구간의 WAF를 잃지 않고, 이어지는
+         * workload는 0부터 측정할 수 있다. FDP의 accounting 의미는
+         * 변경하지 않도록 Phase 1 counter는 non-FDP에서만 처리한다.
+         */
+        if (!ssd->fdp_enabled) {
+            ssd_print_stats(ssd);
+            ssd->host_page_writes = 0;
+            ssd->nand_page_writes = 0;
+            ssd->gc_page_writes = 0;
+        }
+
         /* counters are sharded per poller (see FemuPollerCtr); sum then reset */
         int64_t tt = 0, late = 0;
         if (n->poller_ctr) {
@@ -125,4 +138,3 @@ int nvme_register_bbssd(FemuCtrl *n)
 
     return 0;
 }
-
