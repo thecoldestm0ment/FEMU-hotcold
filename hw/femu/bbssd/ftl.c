@@ -2,6 +2,7 @@
 #include "ftl-internal.h"
 
 //#define FEMU_DEBUG_FTL
+#define HOT_REWRITE_WINDOW_DEFAULT 1024ULL
 
 /*
  * 기본 bbssd(non-FDP) FTL 읽기 순서
@@ -347,6 +348,71 @@ static struct ppa get_new_page(struct ssd *ssd)
     return ppa;
 }
 
+/* non-FDP에서만 mapping table과 같은 크기의 LPN history를 준비한다. */
+static void ssd_init_lpn_metadata(struct ssd *ssd)
+{
+    struct ssdparams *spp = &ssd->sp;
+    uint64_t metadata_bytes;
+
+    ssd->lpn_meta = NULL;
+    ssd->host_write_seq = 0;
+    ssd->hot_rewrite_window = 0;
+
+    if (ssd->fdp_enabled) {
+        return;
+    }
+
+    /* UNSEEN을 0으로 정의했으므로 zero allocation이 모든 초기값을 만든다. */
+    ssd->lpn_meta = g_new0(LpnMeta, spp->tt_pgs);
+    ssd->hot_rewrite_window = HOT_REWRITE_WINDOW_DEFAULT;
+
+    metadata_bytes = (uint64_t)spp->tt_pgs * sizeof(*ssd->lpn_meta);
+    ftl_log("LPN metadata: entries=%d entry_size=%zu total=%" PRIu64
+            " MiB hot_window=%" PRIu64 "\n",
+            spp->tt_pgs, sizeof(*ssd->lpn_meta), metadata_bytes / MiB,
+            ssd->hot_rewrite_window);
+}
+
+/* 한 번의 host page write를 관찰해 해당 LPN의 온도만 갱신한다. */
+static void ssd_update_lpn_temperature(struct ssd *ssd, uint64_t lpn)
+{
+    LpnMeta *meta;
+
+    ftl_assert(ssd->lpn_meta != NULL);
+    ftl_assert(valid_lpn(ssd, lpn));
+    meta = &ssd->lpn_meta[lpn];
+
+    /* 0은 미관찰용으로 비우고, wrap 대신 64-bit 최댓값에서 포화시킨다. */
+    if (ssd->host_write_seq != UINT64_MAX) {
+        ssd->host_write_seq++;
+    }
+
+    if (meta->write_count == 0) {
+        meta->update_interval = 0;
+        meta->state = LPN_STATE_COLD;
+    } else {
+        ftl_assert(meta->last_write_seq <= ssd->host_write_seq);
+        meta->update_interval = ssd->host_write_seq - meta->last_write_seq;
+        /* 전체 배열을 순회하지 않고 다음 host write에서 늦게 Cold로 내린다. */
+        meta->state = meta->update_interval <= ssd->hot_rewrite_window ?
+                      LPN_STATE_HOT : LPN_STATE_COLD;
+    }
+
+    meta->last_write_seq = ssd->host_write_seq;
+    /* count가 0으로 wrap해 UNSEEN처럼 보이지 않도록 포화시킨다. */
+    if (meta->write_count != UINT32_MAX) {
+        meta->write_count++;
+    }
+}
+
+/* TRIM은 logical lifetime의 끝이므로 다음 write를 다시 첫 write로 본다. */
+static void ssd_reset_lpn_metadata(struct ssd *ssd, uint64_t lpn)
+{
+    ftl_assert(ssd->lpn_meta != NULL);
+    ftl_assert(valid_lpn(ssd, lpn));
+    memset(&ssd->lpn_meta[lpn], 0, sizeof(ssd->lpn_meta[lpn]));
+}
+
 
 
 /* geometry, NAND, mapping, line을 초기화하고 FTL worker thread를 시작한다. */
@@ -390,6 +456,7 @@ void ssd_init(FemuCtrl *n)
     ssd->fdp_enabled = (n->subsys != NULL &&
                         n->subsys->params.fdp.enabled);
     ssd->fdp_debug = (getenv("FEMU_FDP_DEBUG") != NULL);
+    ssd_init_lpn_metadata(ssd);
 
     if (ssd->fdp_enabled) {
         ssd_init_fdp_params(spp, n);
@@ -924,6 +991,9 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     }
 
     for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
+        /* host write temperature history 갱신 */
+        ssd_update_lpn_temperature(ssd, lpn);
+
         ppa = get_maptbl_ent(ssd, lpn);
         if (mapped_ppa(&ppa)) {
             /* 같은 LPN의 이전 물리 page는 더 이상 최신 데이터가 아니다. */
@@ -1013,6 +1083,8 @@ static uint64_t ssd_trim(struct ssd *ssd, NvmeRequest *req)
 
         /* range에 포함된 LPN의 양방향 mapping을 하나씩 해제한다. */
         for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
+            /* logical lifetime 종료 */
+            ssd_reset_lpn_metadata(ssd, lpn);
             ppa = get_maptbl_ent(ssd, lpn);
             
             /* 이미 mapping이 없으면 상태 변경 없이 넘어간다. */
@@ -1060,7 +1132,6 @@ static uint64_t ssd_trim(struct ssd *ssd, NvmeRequest *req)
 
 /*
  * ========== FDP FTL 구현 ==========
- * 기본 bbssd 흐름만 공부한다면 이 구간은 건너뛰고 ftl_thread()로 이동한다.
  */
 
 /*

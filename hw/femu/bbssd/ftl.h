@@ -38,6 +38,20 @@ enum {
     PG_VALID = 2
 };
 
+/* 하나의 LPN을 host write 간격으로 분류한 현재 온도다. */
+typedef enum LpnState {
+    LPN_STATE_UNSEEN = 0,
+    LPN_STATE_COLD,
+    LPN_STATE_HOT,
+} LpnState;
+
+typedef struct LpnMeta {
+    uint64_t last_write_seq; /* 마지막 host page-write sequence */
+    uint64_t update_interval; /* 직전 write와 현재 write의 sequence 차이 */
+    uint32_t write_count; /* 이 LPN에서 관찰한 host write 수 */
+    LpnState state; /* 현재 UNSEEN/COLD/HOT 분류 */
+} LpnMeta;
+
 enum {
     FEMU_ENABLE_GC_DELAY = 1,
     FEMU_DISABLE_GC_DELAY = 2,
@@ -310,6 +324,11 @@ struct ssd {
     uint64_t host_page_writes;
     uint64_t nand_page_writes;
     uint64_t gc_page_writes;
+
+    /* non-FDP Phase 2: LPN별 host-write 이력과 현재 분류 */
+    LpnMeta *lpn_meta;
+    uint64_t host_write_seq;
+    uint64_t hot_rewrite_window;
 
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring **to_ftl;
