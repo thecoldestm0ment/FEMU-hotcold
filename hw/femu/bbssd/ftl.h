@@ -318,12 +318,15 @@ struct ssd {
     struct ssd_channel *ch;
     struct ppa *maptbl; /* page level mapping table */
     uint64_t *rmap;     /* reverse mapptbl, assume it's stored in OOB */
-    struct write_pointer wp;
+    /* non-FDP Phase 3: 두 pointer는 서로 다른 active line을 소유한다. */
+    struct write_pointer wp_hot;
+    struct write_pointer wp_cold;
     struct line_mgmt lm;
     /* non-FDP Phase 1: WAF 계산에 필요한 page-write counter */
     uint64_t host_page_writes;
     uint64_t nand_page_writes;
     uint64_t gc_page_writes;
+    uint64_t block_erases;
 
     /* non-FDP Phase 2: LPN별 host-write 이력과 현재 분류 */
     LpnMeta *lpn_meta;

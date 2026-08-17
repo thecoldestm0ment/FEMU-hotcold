@@ -67,6 +67,7 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
             ssd->host_page_writes = 0;
             ssd->nand_page_writes = 0;
             ssd->gc_page_writes = 0;
+            ssd->block_erases = 0;
         }
 
         /* counters are sharded per poller (see FemuPollerCtr); sum then reset */

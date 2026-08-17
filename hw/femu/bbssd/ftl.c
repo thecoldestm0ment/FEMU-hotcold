@@ -49,9 +49,10 @@ void ssd_print_stats(struct ssd *ssd)
     ftl_log("BBSSD-STATS host_page_writes=%" PRIu64
             " nand_page_writes=%" PRIu64
             " gc_page_writes=%" PRIu64
+            " block_erases=%" PRIu64
             " waf=%s\n",
             ssd->host_page_writes, ssd->nand_page_writes,
-            ssd->gc_page_writes, waf);
+            ssd->gc_page_writes, ssd->block_erases, waf);
 }
 
 /*
@@ -235,27 +236,6 @@ static void ssd_init_lines(struct ssd *ssd)
     lm->full_line_cnt = 0;
 }
 
-/* 첫 free line을 꺼내 non-FDP용 단일 write pointer를 시작한다. */
-static void ssd_init_write_pointer(struct ssd *ssd)
-{
-    struct write_pointer *wpp = &ssd->wp;
-    struct line_mgmt *lm = &ssd->lm;
-    struct line *curline = NULL;
-
-    curline = QTAILQ_FIRST(&lm->free_line_list);
-    QTAILQ_REMOVE(&lm->free_line_list, curline, entry);
-    lm->free_line_cnt--;
-
-    /* wpp->curline은 항상 다음 write에 사용할 superblock이다. */
-    wpp->curline = curline;
-    wpp->ch = 0;
-    wpp->lun = 0;
-    wpp->pg = 0;
-    wpp->blk = 0;
-    wpp->pl = 0;
-}
-
-
 /* free list에서 다음 line을 꺼내고 남은 free line 수를 줄인다. */
 static struct line *get_next_free_line(struct ssd *ssd)
 {
@@ -273,15 +253,47 @@ static struct line *get_next_free_line(struct ssd *ssd)
     return curline;
 }
 
+/* 주어진 non-FDP write pointer에 free line 하나를 배정한다. */
+static void ssd_init_write_pointer(struct ssd *ssd,
+                                   struct write_pointer *wpp)
+{
+    struct line *curline = get_next_free_line(ssd);
+
+    if (!curline) {
+        abort();
+    }
+
+    wpp->curline = curline;
+    wpp->ch = 0;
+    wpp->lun = 0;
+    wpp->pg = 0;
+    wpp->blk = curline->id;
+    wpp->pl = 0;
+}
+
+/* 두 active pointer가 같은 line을 공유하면 즉시 중단한다. */
+static void ssd_validate_write_pointers(struct ssd *ssd)
+{
+    struct write_pointer *hot = &ssd->wp_hot;
+    struct write_pointer *cold = &ssd->wp_cold;
+
+    if (!hot->curline || !cold->curline ||
+        hot->curline == cold->curline ||
+        hot->blk != hot->curline->id || cold->blk != cold->curline->id) {
+        ftl_err("invalid Hot/Cold write pointer state\n");
+        abort();
+    }
+}
+
 /*
  * write pointer 순회: channel -> LUN -> page.
  * 한 line을 다 쓰면 valid page만 있으면 full, invalid page가 있으면 victim
  * 자료구조로 옮긴 뒤 다음 free line에서 다시 시작한다.
  */
-static void ssd_advance_write_pointer(struct ssd *ssd)
+static void ssd_advance_write_pointer(struct ssd *ssd,
+                                      struct write_pointer *wpp)
 {
     struct ssdparams *spp = &ssd->sp;
-    struct write_pointer *wpp = &ssd->wp;
     struct line_mgmt *lm = &ssd->lm;
 
     check_addr(wpp->ch, spp->nchs);
@@ -327,15 +339,15 @@ static void ssd_advance_write_pointer(struct ssd *ssd)
                 ftl_assert(wpp->ch == 0);
                 /* TODO: 현재는 LUN당 plane 수를 1로 가정하며 추후 수정 필요 */
                 ftl_assert(wpp->pl == 0);
+                ssd_validate_write_pointers(ssd);
             }
         }
     }
 }
 
 /* 현재 write pointer가 가리키는, 다음 write에 사용할 PPA를 만든다. */
-static struct ppa get_new_page(struct ssd *ssd)
+static struct ppa get_new_page(struct write_pointer *wpp)
 {
-    struct write_pointer *wpp = &ssd->wp;
     struct ppa ppa;
     ppa.ppa = 0;
     ppa.g.ch = wpp->ch;
@@ -431,6 +443,7 @@ void ssd_init(FemuCtrl *n)
     ssd->host_page_writes = 0;
     ssd->nand_page_writes = 0;
     ssd->gc_page_writes = 0;
+    ssd->block_erases = 0;
 
     ssd_init_params(spp, n);
 
@@ -468,8 +481,13 @@ void ssd_init(FemuCtrl *n)
         ftl_log("FDP: init complete (nrg=%lu, nruhs=%lu)\n",
                 ssd->nrg, ssd->nruhs);
     } else {
-        /* non-FDP는 단일 write pointer 사용 */
-        ssd_init_write_pointer(ssd);
+        /* Phase 3에서는 둘 다 global free list에서 서로 다른 line을 받는다. */
+        ssd_init_write_pointer(ssd, &ssd->wp_cold);
+        ssd_init_write_pointer(ssd, &ssd->wp_hot);
+        ssd_validate_write_pointers(ssd);
+        ftl_log("Write pointers: hot_line=%d cold_line=%d free_lines=%d\n",
+                ssd->wp_hot.curline->id, ssd->wp_cold.curline->id,
+                ssd->lm.free_line_cnt);
     }
 
     qemu_thread_create(&ssd->ftl_thread, "FEMU-FTL-Thread", ftl_thread, n,
@@ -732,6 +750,7 @@ static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
     blk->ipc = 0;
     blk->vpc = 0;
     blk->erase_cnt++;
+    ssd->block_erases++;
     if (exp_watch_blk[ppa->g.blk])
         EXP_LOG("[ERASE] " PPA_FMT " erase_cnt=%d (vpc/ipc reset)\n",
                 PPA_ARG(ppa), blk->erase_cnt);
@@ -756,11 +775,13 @@ static void gc_read_page(struct ssd *ssd, struct ppa *ppa)
 static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
 {
     struct ppa new_ppa;
+    struct write_pointer *wpp = &ssd->wp_cold;
     struct nand_lun *new_lun;
     uint64_t lpn = get_rmap_ent(ssd, old_ppa);
 
     ftl_assert(valid_lpn(ssd, lpn));
-    new_ppa = get_new_page(ssd);
+    /* Phase 3에서는 분류 routing 전이므로 기존 동작을 wp_cold로 유지한다. */
+    new_ppa = get_new_page(wpp);
     /* LPN -> 새 PPA 갱신 */
     set_maptbl_ent(ssd, lpn, &new_ppa);
     /* 새 PPA -> LPN 갱신 */
@@ -774,7 +795,7 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
     mark_page_valid(ssd, &new_ppa);
 
     /* 새 PPA를 사용했으므로 write pointer 이동 */
-    ssd_advance_write_pointer(ssd);
+    ssd_advance_write_pointer(ssd, wpp);
 
     /*
      * Phase 1 수정
@@ -967,6 +988,7 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
 {
     uint64_t lba = req->slba;
     struct ssdparams *spp = &ssd->sp;
+    struct write_pointer *wpp = &ssd->wp_cold;
     int len = req->nlb;
     uint64_t start_lpn = lba / spp->secs_per_pg;
     uint64_t end_lpn = (lba + len - 1) / spp->secs_per_pg;
@@ -1005,7 +1027,8 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         }
 
         /* 새 PPA를 배정하고 양방향 mapping을 함께 갱신한다. */
-        ppa = get_new_page(ssd);
+        /* Phase 5 전까지 모든 host write는 기본 Cold pointer를 사용한다. */
+        ppa = get_new_page(wpp);
         set_maptbl_ent(ssd, lpn, &ppa);
         set_rmap_ent(ssd, lpn, &ppa);
 
@@ -1019,7 +1042,7 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         }
 
         /* 현재 PPA를 사용했으므로 다음 free page로 이동한다. */
-        ssd_advance_write_pointer(ssd);
+        ssd_advance_write_pointer(ssd, wpp);
 
         struct nand_cmd swr;
         swr.type = USER_IO;
