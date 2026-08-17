@@ -214,18 +214,23 @@ static void ssd_init_lines(struct ssd *ssd)
     lm->lines = g_malloc0(sizeof(struct line) * lm->tt_lines);
 
     QTAILQ_INIT(&lm->free_line_list);
+    QTAILQ_INIT(&lm->free_hot_line_list);
+    QTAILQ_INIT(&lm->free_cold_line_list);
     lm->victim_line_pq = pqueue_init(spp->tt_lines, victim_line_cmp_pri,
             victim_line_get_pri, victim_line_set_pri,
             victim_line_get_pos, victim_line_set_pos);
     QTAILQ_INIT(&lm->full_line_list);
 
     lm->free_line_cnt = 0;
+    lm->free_hot_line_cnt = 0;
+    lm->free_cold_line_cnt = 0;
     for (int i = 0; i < lm->tt_lines; i++) {
         line = &lm->lines[i];
         line->id = i;
         line->ipc = 0;
         line->vpc = 0;
         line->pos = 0;
+        line->data_class = LINE_CLASS_NONE;
         /* 모든 line을 free line으로 초기화 */
         QTAILQ_INSERT_TAIL(&lm->free_line_list, line, entry);
         lm->free_line_cnt++;
@@ -253,11 +258,120 @@ static struct line *get_next_free_line(struct ssd *ssd)
     return curline;
 }
 
-/* 주어진 non-FDP write pointer에 free line 하나를 배정한다. */
-static void ssd_init_write_pointer(struct ssd *ssd,
-                                   struct write_pointer *wpp)
+/* non-FDP aggregate count와 class별 count가 항상 같은 총량인지 확인한다. */
+static void ssd_validate_free_line_counts(struct ssd *ssd)
 {
-    struct line *curline = get_next_free_line(ssd);
+    struct line_mgmt *lm = &ssd->lm;
+
+    if (lm->free_line_cnt < 0 || lm->free_hot_line_cnt < 0 ||
+        lm->free_cold_line_cnt < 0 ||
+        lm->free_line_cnt !=
+        lm->free_hot_line_cnt + lm->free_cold_line_cnt) {
+        ftl_err("invalid Hot/Cold free line counts: total=%d hot=%d cold=%d\n",
+                lm->free_line_cnt, lm->free_hot_line_cnt,
+                lm->free_cold_line_cnt);
+        abort();
+    }
+}
+
+/* global free list를 non-FDP용 50:50 Cold/Hot pool로 한 번만 분배한다. */
+static void ssd_init_hotcold_line_pools(struct ssd *ssd)
+{
+    struct line_mgmt *lm = &ssd->lm;
+    struct line *line;
+    int cold_target = (lm->tt_lines + 1) / 2;
+
+    while ((line = QTAILQ_FIRST(&lm->free_line_list)) != NULL) {
+        QTAILQ_REMOVE(&lm->free_line_list, line, entry);
+        if (lm->free_cold_line_cnt < cold_target) {
+            line->data_class = LINE_CLASS_COLD;
+            QTAILQ_INSERT_TAIL(&lm->free_cold_line_list, line, entry);
+            lm->free_cold_line_cnt++;
+        } else {
+            line->data_class = LINE_CLASS_HOT;
+            QTAILQ_INSERT_TAIL(&lm->free_hot_line_list, line, entry);
+            lm->free_hot_line_cnt++;
+        }
+    }
+
+    /* Pool 사이로 이동했을 뿐이므로 aggregate free count는 바뀌지 않는다. */
+    ssd_validate_free_line_counts(ssd);
+}
+
+/* 한 class pool에서 line 하나와 해당 count를 함께 제거한다. */
+static struct line *pop_free_line(union free_line_list *list, int *count)
+{
+    struct line *line = QTAILQ_FIRST(list);
+
+    if (!line) {
+        return NULL;
+    }
+    if (*count <= 0) {
+        abort();
+    }
+
+    QTAILQ_REMOVE(list, line, entry);
+    (*count)--;
+    return line;
+}
+
+/* 요청 pool이 비면 반대 pool에서 빌리고 요청받은 class로 바꾼다. */
+static struct line *get_next_free_line_by_class(struct ssd *ssd,
+                                                LineClass data_class)
+{
+    struct line_mgmt *lm = &ssd->lm;
+    union free_line_list *requested;
+    union free_line_list *fallback;
+    int *requested_cnt;
+    int *fallback_cnt;
+    struct line *line;
+    bool borrowed = false;
+
+    if (data_class == LINE_CLASS_HOT) {
+        requested = &lm->free_hot_line_list;
+        requested_cnt = &lm->free_hot_line_cnt;
+        fallback = &lm->free_cold_line_list;
+        fallback_cnt = &lm->free_cold_line_cnt;
+    } else if (data_class == LINE_CLASS_COLD) {
+        requested = &lm->free_cold_line_list;
+        requested_cnt = &lm->free_cold_line_cnt;
+        fallback = &lm->free_hot_line_list;
+        fallback_cnt = &lm->free_hot_line_cnt;
+    } else {
+        ftl_err("invalid requested line class: %d\n", data_class);
+        abort();
+    }
+
+    line = pop_free_line(requested, requested_cnt);
+    if (!line) {
+        line = pop_free_line(fallback, fallback_cnt);
+        borrowed = true;
+    }
+    if (!line) {
+        ftl_err("No Hot/Cold free lines left in [%s]\n", ssd->ssdname);
+        return NULL;
+    }
+
+    if (!borrowed && line->data_class != data_class) {
+        ftl_err("line %d is in the wrong class pool\n", line->id);
+        abort();
+    }
+
+    line->data_class = data_class;
+    lm->free_line_cnt--;
+    ssd_validate_free_line_counts(ssd);
+    ftl_debug("line %d allocated as class %d%s\n", line->id, data_class,
+              borrowed ? " (borrowed)" : "");
+    return line;
+}
+
+/* 주어진 non-FDP write pointer에 해당 class의 free line을 배정한다. */
+static void ssd_init_write_pointer(struct ssd *ssd,
+                                   struct write_pointer *wpp,
+                                   LineClass data_class)
+{
+    struct line *curline =
+        get_next_free_line_by_class(ssd, data_class);
 
     if (!curline) {
         abort();
@@ -279,6 +393,8 @@ static void ssd_validate_write_pointers(struct ssd *ssd)
 
     if (!hot->curline || !cold->curline ||
         hot->curline == cold->curline ||
+        hot->curline->data_class != LINE_CLASS_HOT ||
+        cold->curline->data_class != LINE_CLASS_COLD ||
         hot->blk != hot->curline->id || cold->blk != cold->curline->id) {
         ftl_err("invalid Hot/Cold write pointer state\n");
         abort();
@@ -309,6 +425,8 @@ static void ssd_advance_write_pointer(struct ssd *ssd,
             check_addr(wpp->pg, spp->pgs_per_blk);
             wpp->pg++;
             if (wpp->pg == spp->pgs_per_blk) {
+                LineClass data_class = wpp->curline->data_class;
+
                 wpp->pg = 0;
                 /* 사용이 끝난 line을 victim 또는 full 자료구조로 이동 */
                 if (wpp->curline->vpc == spp->pgs_per_line) {
@@ -326,7 +444,8 @@ static void ssd_advance_write_pointer(struct ssd *ssd,
                 /* 현재 line을 모두 사용했으므로 다음 free line 선택 */
                 check_addr(wpp->blk, spp->blks_per_pl);
                 wpp->curline = NULL;
-                wpp->curline = get_next_free_line(ssd);
+                wpp->curline =
+                    get_next_free_line_by_class(ssd, data_class);
                 if (!wpp->curline) {
                     /* TODO: free line 고갈 처리 */
                     abort();
@@ -481,13 +600,15 @@ void ssd_init(FemuCtrl *n)
         ftl_log("FDP: init complete (nrg=%lu, nruhs=%lu)\n",
                 ssd->nrg, ssd->nruhs);
     } else {
-        /* Phase 3에서는 둘 다 global free list에서 서로 다른 line을 받는다. */
-        ssd_init_write_pointer(ssd, &ssd->wp_cold);
-        ssd_init_write_pointer(ssd, &ssd->wp_hot);
+        ssd_init_hotcold_line_pools(ssd);
+        ssd_init_write_pointer(ssd, &ssd->wp_cold, LINE_CLASS_COLD);
+        ssd_init_write_pointer(ssd, &ssd->wp_hot, LINE_CLASS_HOT);
         ssd_validate_write_pointers(ssd);
-        ftl_log("Write pointers: hot_line=%d cold_line=%d free_lines=%d\n",
+        ftl_log("Write pointers: hot_line=%d cold_line=%d free=%d "
+                "hot_free=%d cold_free=%d\n",
                 ssd->wp_hot.curline->id, ssd->wp_cold.curline->id,
-                ssd->lm.free_line_cnt);
+                ssd->lm.free_line_cnt, ssd->lm.free_hot_line_cnt,
+                ssd->lm.free_cold_line_cnt);
     }
 
     qemu_thread_create(&ssd->ftl_thread, "FEMU-FTL-Thread", ftl_thread, n,
@@ -876,11 +997,24 @@ static void mark_line_free(struct ssd *ssd, struct ppa *ppa)
 {
     struct line_mgmt *lm = &ssd->lm;
     struct line *line = get_line(ssd, ppa);
+
     line->ipc = 0;
     line->vpc = 0;
-    /* 회수한 line을 free line list로 이동 */
-    QTAILQ_INSERT_TAIL(&lm->free_line_list, line, entry);
+
+    /* GC 후에도 line class를 유지해 같은 class pool로 반환한다. */
+    if (line->data_class == LINE_CLASS_HOT) {
+        QTAILQ_INSERT_TAIL(&lm->free_hot_line_list, line, entry);
+        lm->free_hot_line_cnt++;
+    } else if (line->data_class == LINE_CLASS_COLD) {
+        QTAILQ_INSERT_TAIL(&lm->free_cold_line_list, line, entry);
+        lm->free_cold_line_cnt++;
+    } else {
+        ftl_err("GC returned line %d without a data class\n", line->id);
+        abort();
+    }
+
     lm->free_line_cnt++;
+    ssd_validate_free_line_counts(ssd);
 }
 
 /*

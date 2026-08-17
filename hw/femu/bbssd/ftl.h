@@ -45,6 +45,13 @@ typedef enum LpnState {
     LPN_STATE_HOT,
 } LpnState;
 
+/* Free/active line이 현재 어느 data class에 속하는지 나타낸다. */
+typedef enum LineClass {
+    LINE_CLASS_NONE = 0,
+    LINE_CLASS_COLD,
+    LINE_CLASS_HOT,
+} LineClass;
+
 typedef struct LpnMeta {
     uint64_t last_write_seq; /* 마지막 host page-write sequence */
     uint64_t update_interval; /* 직전 write와 현재 write의 sequence 차이 */
@@ -187,6 +194,8 @@ typedef struct line {
     QTAILQ_ENTRY(line) entry; /* in either {free,victim,full} list */
     /* position in the priority queue for victim lines */
     size_t                  pos;
+    /* non-FDP Hot/Cold pool class; FDP line은 NONE을 유지한다. */
+    LineClass data_class;
     /* FDP: owning reclaim unit (NULL in non-FDP mode) */
     FemuReclaimUnit *my_ru;
 } line;
@@ -203,13 +212,17 @@ struct write_pointer {
 
 struct line_mgmt {
     struct line *lines;
-    /* free line list, we only need to maintain a list of blk numbers */
+    /* FDP는 global list, non-FDP는 Hot/Cold list를 사용한다. */
     QTAILQ_HEAD(free_line_list, line) free_line_list;
+    union free_line_list free_hot_line_list;
+    union free_line_list free_cold_line_list;
     pqueue_t *victim_line_pq;
     //QTAILQ_HEAD(victim_line_list, line) victim_line_list;
     QTAILQ_HEAD(full_line_list, line) full_line_list;
     int tt_lines;
     int free_line_cnt;
+    int free_hot_line_cnt;
+    int free_cold_line_cnt;
     int victim_line_cnt;
     int full_line_cnt;
 };
