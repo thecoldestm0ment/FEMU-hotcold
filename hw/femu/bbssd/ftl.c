@@ -536,6 +536,20 @@ static void ssd_update_lpn_temperature(struct ssd *ssd, uint64_t lpn)
     }
 }
 
+/* LPN의 현재 온도에 맞는 non-FDP write pointer를 선택한다. */
+static struct write_pointer *ssd_select_write_pointer(struct ssd *ssd,
+                                                      uint64_t lpn)
+{
+    LpnState state;
+
+    ftl_assert(ssd->lpn_meta != NULL);
+    ftl_assert(valid_lpn(ssd, lpn));
+    state = ssd->lpn_meta[lpn].state;
+
+    ftl_assert(state == LPN_STATE_COLD || state == LPN_STATE_HOT);
+    return state == LPN_STATE_HOT ? &ssd->wp_hot : &ssd->wp_cold;
+}
+
 /* TRIM은 logical lifetime의 끝이므로 다음 write를 다시 첫 write로 본다. */
 static void ssd_reset_lpn_metadata(struct ssd *ssd, uint64_t lpn)
 {
@@ -896,12 +910,13 @@ static void gc_read_page(struct ssd *ssd, struct ppa *ppa)
 static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
 {
     struct ppa new_ppa;
-    struct write_pointer *wpp = &ssd->wp_cold;
+    struct write_pointer *wpp;
     struct nand_lun *new_lun;
     uint64_t lpn = get_rmap_ent(ssd, old_ppa);
 
     ftl_assert(valid_lpn(ssd, lpn));
-    /* Phase 3에서는 분류 routing 전이므로 기존 동작을 wp_cold로 유지한다. */
+    /* GC는 온도 이력을 갱신하지 않고 현재 분류에 맞는 line으로 이동한다. */
+    wpp = ssd_select_write_pointer(ssd, lpn);
     new_ppa = get_new_page(wpp);
     /* LPN -> 새 PPA 갱신 */
     set_maptbl_ent(ssd, lpn, &new_ppa);
@@ -1122,7 +1137,7 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
 {
     uint64_t lba = req->slba;
     struct ssdparams *spp = &ssd->sp;
-    struct write_pointer *wpp = &ssd->wp_cold;
+    struct write_pointer *wpp;
     int len = req->nlb;
     uint64_t start_lpn = lba / spp->secs_per_pg;
     uint64_t end_lpn = (lba + len - 1) / spp->secs_per_pg;
@@ -1160,8 +1175,8 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
             set_rmap_ent(ssd, INVALID_LPN, &ppa);
         }
 
-        /* 새 PPA를 배정하고 양방향 mapping을 함께 갱신한다. */
-        /* Phase 5 전까지 모든 host write는 기본 Cold pointer를 사용한다. */
+        /* 갱신된 온도에 맞는 pointer에서 새 PPA를 배정한다. */
+        wpp = ssd_select_write_pointer(ssd, lpn);
         ppa = get_new_page(wpp);
         set_maptbl_ent(ssd, lpn, &ppa);
         set_rmap_ent(ssd, lpn, &ppa);
