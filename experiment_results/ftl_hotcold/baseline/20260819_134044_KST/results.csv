@@ -1,0 +1,2 @@
+variant,source_commit,separation,host_page_writes,nand_page_writes,gc_page_writes,gc_page_writes_per_host,gc_count,average_gc_copy,block_erases,waf,fio_iops,fio_bw_mib_s,fio_io_gib,fio_runtime_ms,fill_rc,marker1_rc,marker2_rc,measurement_rc,counter_invariant
+no_separation_corrected,f28e6fbb4e91406e0ccb6027fdc2f454bd2bb5ce,none,9928972,78934259,69005287,6.949892,4814,14334.293103,308096,7.949892,8254,129,37.9,300699,0,0,0,0,PASS
