@@ -3,6 +3,9 @@
 
 //#define FEMU_DEBUG_FTL
 #define HOT_REWRITE_WINDOW_DEFAULT 1024ULL
+#define HOT_ACCESS_THRESHOLD_DEFAULT 3U
+#define HOT_CONFIRMATION_THRESHOLD_DEFAULT 2U
+#define HOT_DECAY_WINDOW_DEFAULT 65536ULL
 
 /*
  * 기본 bbssd(non-FDP) FTL 읽기 순서
@@ -30,25 +33,60 @@ static void ssd_trim_fdp_style(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
 static void ssd_reset_maptbl(struct ssd *ssd);
 static void exp_load_cfg(void);
 
-/* V1 threshold sweep: unset means the documented 1024-page default. */
-static uint64_t ssd_load_hot_rewrite_window(void)
+/* V2 runtime parameters: unset variables use the documented defaults. */
+static uint64_t ssd_load_positive_u64(const char *name, uint64_t default_value)
 {
-    const char *value = getenv("FEMU_HOT_REWRITE_WINDOW");
+    const char *value = getenv(name);
     char *end = NULL;
     unsigned long long parsed;
 
     if (!value || value[0] == '\0') {
-        return HOT_REWRITE_WINDOW_DEFAULT;
+        return default_value;
     }
 
     errno = 0;
-    parsed = strtoull(value, &end, 0);
-    if (errno != 0 || end == value || *end != '\0' || parsed == 0) {
-        ftl_err("invalid FEMU_HOT_REWRITE_WINDOW='%s'\n", value);
+    parsed = strtoull(value, &end, 10);
+    if (value[0] < '0' || value[0] > '9' ||
+        errno != 0 || end == value || *end != '\0' || parsed == 0) {
+        ftl_err("invalid %s='%s' (expected positive integer)\n", name, value);
         abort();
     }
 
     return (uint64_t)parsed;
+}
+
+static uint32_t ssd_load_positive_u32(const char *name, uint32_t default_value)
+{
+    uint64_t parsed = ssd_load_positive_u64(name, default_value);
+
+    if (parsed > UINT32_MAX) {
+        ftl_err("invalid %s='%" PRIu64 "' (maximum %u)\n",
+                name, parsed, UINT32_MAX);
+        abort();
+    }
+
+    return (uint32_t)parsed;
+}
+
+static bool ssd_load_bool(const char *name, bool default_value)
+{
+    const char *value = getenv(name);
+
+    if (!value || value[0] == '\0') {
+        return default_value;
+    }
+    if (!strcmp(value, "1") || !strcmp(value, "on") ||
+        !strcmp(value, "true")) {
+        return true;
+    }
+    if (!strcmp(value, "0") || !strcmp(value, "off") ||
+        !strcmp(value, "false")) {
+        return false;
+    }
+
+    ftl_err("invalid %s='%s' (expected 1/0, on/off, or true/false)\n",
+            name, value);
+    abort();
 }
 
 /* Reset measurement counters only. LPN history intentionally survives. */
@@ -69,6 +107,7 @@ void ssd_reset_stats(struct ssd *ssd)
     ssd->cold_pool_empty_count = 0;
     ssd->borrow_count = 0;
     ssd->emergency_gc_count = 0;
+    ssd->decay_application_count = 0;
 }
 
 /*
@@ -107,7 +146,11 @@ void ssd_print_stats(struct ssd *ssd)
                  (double)ssd->host_page_writes);
     }
 
-    ftl_log("BBSSD-STATS version=V1 hot_rewrite_window=%" PRIu64
+    ftl_log("BBSSD-STATS version=V2 hot_rewrite_window=%" PRIu64
+            " hot_access_threshold=%u"
+            " hot_confirmation_threshold=%u"
+            " hot_decay_window=%" PRIu64
+            " hot_decay_enabled=%s"
             " host_page_writes=%" PRIu64
             " nand_page_writes=%" PRIu64
             " gc_page_writes=%" PRIu64
@@ -126,8 +169,11 @@ void ssd_print_stats(struct ssd *ssd)
             " cold_pool_empty_count=%" PRIu64
             " borrow_count=%" PRIu64
             " emergency_gc_count=%" PRIu64
+            " decay_application_count=%" PRIu64
             " counter_invariant=%s\n",
-            ssd->hot_rewrite_window, ssd->host_page_writes,
+            ssd->hot_rewrite_window, ssd->hot_access_threshold,
+            ssd->hot_confirmation_threshold, ssd->hot_decay_window,
+            ssd->hot_decay_enabled ? "on" : "off", ssd->host_page_writes,
             ssd->nand_page_writes, ssd->gc_page_writes,
             ssd->block_erases, waf, ssd->gc_count, average_gc_copy,
             ssd->host_hot_writes, ssd->host_cold_writes, hot_write_ratio,
@@ -135,6 +181,7 @@ void ssd_print_stats(struct ssd *ssd)
             ssd->cold_to_hot_count, ssd->hot_to_cold_count,
             ssd->hot_pool_empty_count, ssd->cold_pool_empty_count,
             ssd->borrow_count, ssd->emergency_gc_count,
+            ssd->decay_application_count,
             counters_valid ? "PASS" : "FAIL");
 }
 
@@ -579,7 +626,11 @@ static void ssd_init_lpn_metadata(struct ssd *ssd)
 
     ssd->lpn_meta = NULL;
     ssd->host_write_seq = 0;
-    ssd->hot_rewrite_window = 0;
+    ssd->hot_rewrite_window = HOT_REWRITE_WINDOW_DEFAULT;
+    ssd->hot_access_threshold = HOT_ACCESS_THRESHOLD_DEFAULT;
+    ssd->hot_confirmation_threshold = HOT_CONFIRMATION_THRESHOLD_DEFAULT;
+    ssd->hot_decay_window = HOT_DECAY_WINDOW_DEFAULT;
+    ssd->hot_decay_enabled = true;
 
     if (ssd->fdp_enabled) {
         return;
@@ -587,20 +638,68 @@ static void ssd_init_lpn_metadata(struct ssd *ssd)
 
     /* UNSEEN을 0으로 정의했으므로 zero allocation이 모든 초기값을 만든다. */
     ssd->lpn_meta = g_new0(LpnMeta, spp->tt_pgs);
-    ssd->hot_rewrite_window = ssd_load_hot_rewrite_window();
+    ssd->hot_rewrite_window =
+        ssd_load_positive_u64("FEMU_HOT_REWRITE_WINDOW",
+                              HOT_REWRITE_WINDOW_DEFAULT);
+    ssd->hot_access_threshold =
+        ssd_load_positive_u32("FEMU_HOT_ACCESS_THRESHOLD",
+                              HOT_ACCESS_THRESHOLD_DEFAULT);
+    ssd->hot_confirmation_threshold =
+        ssd_load_positive_u32("FEMU_HOT_CONFIRM_THRESHOLD",
+                              HOT_CONFIRMATION_THRESHOLD_DEFAULT);
+    ssd->hot_decay_window =
+        ssd_load_positive_u64("FEMU_HOT_DECAY_WINDOW",
+                              HOT_DECAY_WINDOW_DEFAULT);
+    ssd->hot_decay_enabled = ssd_load_bool("FEMU_HOT_DECAY", true);
 
     metadata_bytes = (uint64_t)spp->tt_pgs * sizeof(*ssd->lpn_meta);
     ftl_log("LPN metadata: entries=%d entry_size=%zu total=%" PRIu64
-            " MiB hot_window=%" PRIu64 "\n",
+            " MiB T=%" PRIu64 " A=%u C=%u D=%" PRIu64 " decay=%s\n",
             spp->tt_pgs, sizeof(*ssd->lpn_meta), metadata_bytes / MiB,
-            ssd->hot_rewrite_window);
+            ssd->hot_rewrite_window, ssd->hot_access_threshold,
+            ssd->hot_confirmation_threshold, ssd->hot_decay_window,
+            ssd->hot_decay_enabled ? "on" : "off");
 }
 
-/* 한 번의 host page write를 관찰해 해당 LPN의 온도만 갱신한다. */
+/*
+ * 전체 metadata 배열을 순회하지 않고 이 LPN의 다음 host write에서만
+ * 경과 epoch만큼 history를 감쇠한다. GC는 이 함수를 호출하지 않는다.
+ */
+static void ssd_apply_lpn_decay(struct ssd *ssd, LpnMeta *meta,
+                                uint64_t current_epoch)
+{
+    uint64_t elapsed_epochs;
+
+    if (!ssd->hot_decay_enabled || meta->state == LPN_STATE_UNSEEN) {
+        meta->last_decay_epoch = current_epoch;
+        return;
+    }
+    if (current_epoch <= meta->last_decay_epoch) {
+        return;
+    }
+
+    elapsed_epochs = current_epoch - meta->last_decay_epoch;
+    if (elapsed_epochs >= 32) {
+        meta->access_count = 0;
+        meta->short_interval_count = 0;
+    } else {
+        meta->access_count >>= elapsed_epochs;
+        meta->short_interval_count >>= elapsed_epochs;
+    }
+    meta->last_decay_epoch = current_epoch;
+    if (ssd->decay_application_count != UINT64_MAX) {
+        ssd->decay_application_count++;
+    }
+}
+
+/* 한 번의 host page write를 관찰해 V2 조건으로 해당 LPN의 온도를 갱신한다. */
 static void ssd_update_lpn_temperature(struct ssd *ssd, uint64_t lpn)
 {
     LpnMeta *meta;
     LpnState previous_state;
+    uint64_t current_epoch;
+    bool is_rewrite;
+    bool is_short_rewrite;
 
     ftl_assert(ssd->lpn_meta != NULL);
     ftl_assert(valid_lpn(ssd, lpn));
@@ -611,19 +710,37 @@ static void ssd_update_lpn_temperature(struct ssd *ssd, uint64_t lpn)
     if (ssd->host_write_seq != UINT64_MAX) {
         ssd->host_write_seq++;
     }
+    /* sequence 1..D를 첫 epoch로 묶고 D번이 지난 다음 write부터 감쇠한다. */
+    current_epoch =
+        (ssd->host_write_seq - 1) / ssd->hot_decay_window;
+    ssd_apply_lpn_decay(ssd, meta, current_epoch);
 
-    if (meta->write_count == 0) {
+    is_rewrite = meta->state != LPN_STATE_UNSEEN;
+    if (!is_rewrite) {
         meta->update_interval = 0;
-        meta->state = LPN_STATE_COLD;
     } else {
         ftl_assert(meta->last_write_seq <= ssd->host_write_seq);
         meta->update_interval = ssd->host_write_seq - meta->last_write_seq;
-        /* 전체 배열을 순회하지 않고 다음 host write에서 늦게 Cold로 내린다. */
-        meta->state = meta->update_interval <= ssd->hot_rewrite_window ?
-                      LPN_STATE_HOT : LPN_STATE_COLD;
+    }
+    is_short_rewrite =
+        is_rewrite && meta->update_interval <= ssd->hot_rewrite_window;
+
+    if (meta->access_count != UINT32_MAX) {
+        meta->access_count++;
+    }
+    if (is_short_rewrite && meta->short_interval_count != UINT32_MAX) {
+        meta->short_interval_count++;
     }
 
-    if (previous_state == LPN_STATE_COLD && meta->state == LPN_STATE_HOT) {
+    meta->state =
+        meta->access_count >= ssd->hot_access_threshold &&
+        is_short_rewrite &&
+        meta->short_interval_count >= ssd->hot_confirmation_threshold ?
+        LPN_STATE_HOT : LPN_STATE_COLD;
+
+    if ((previous_state == LPN_STATE_COLD ||
+         previous_state == LPN_STATE_UNSEEN) &&
+        meta->state == LPN_STATE_HOT) {
         ssd->cold_to_hot_count++;
     } else if (previous_state == LPN_STATE_HOT &&
                meta->state == LPN_STATE_COLD) {
@@ -631,10 +748,6 @@ static void ssd_update_lpn_temperature(struct ssd *ssd, uint64_t lpn)
     }
 
     meta->last_write_seq = ssd->host_write_seq;
-    /* count가 0으로 wrap해 UNSEEN처럼 보이지 않도록 포화시킨다. */
-    if (meta->write_count != UINT32_MAX) {
-        meta->write_count++;
-    }
 }
 
 /* LPN의 현재 온도에 맞는 non-FDP write pointer를 선택한다. */
@@ -673,7 +786,7 @@ void ssd_init(FemuCtrl *n)
     /* data-remanence 실험용 환경 변수를 한 번만 읽는다(debug 전용, 기본 off). */
     exp_load_cfg();
 
-    /* V1 통계는 SSD 초기화부터 누적한다. */
+    /* V2 통계는 SSD 초기화부터 누적한다. */
     ssd_reset_stats(ssd);
 
     ssd_init_params(spp, n);
@@ -1027,8 +1140,16 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
     set_rmap_ent(ssd, lpn, &new_ppa);
     if (exp_lpn_watched(lpn)) {
         exp_watch_blk[new_ppa.g.blk] = 1; /* 이동한 새 block도 추적 */
-        EXP_LOG("[GC_MOVE] lpn=%lu " PPA_FMT " -> " PPA_FMT "\n",
-                lpn, PPA_ARG(old_ppa), PPA_ARG(&new_ppa));
+        EXP_LOG("[GC_MOVE] lpn=%lu state=%s access=%u short=%u "
+                "last_seq=%" PRIu64 " decay_epoch=%" PRIu64 " "
+                PPA_FMT " -> " PPA_FMT "\n",
+                lpn,
+                ssd->lpn_meta[lpn].state == LPN_STATE_HOT ? "HOT" : "COLD",
+                ssd->lpn_meta[lpn].access_count,
+                ssd->lpn_meta[lpn].short_interval_count,
+                ssd->lpn_meta[lpn].last_write_seq,
+                ssd->lpn_meta[lpn].last_decay_epoch,
+                PPA_ARG(old_ppa), PPA_ARG(&new_ppa));
     }
 
     mark_page_valid(ssd, &new_ppa);
@@ -1299,6 +1420,17 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         if (femu_dbg_lpn_has_secret(ssd, lpn)) {
             exp_watch_lpn_add(lpn);
             exp_watch_blk[ppa.g.blk] = 1;
+            EXP_LOG("[CLASSIFY] lpn=%lu state=%s access=%u short=%u "
+                    "interval=%" PRIu64 " seq=%" PRIu64
+                    " decay_epoch=%" PRIu64 "\n",
+                    lpn,
+                    ssd->lpn_meta[lpn].state == LPN_STATE_HOT ?
+                    "HOT" : "COLD",
+                    ssd->lpn_meta[lpn].access_count,
+                    ssd->lpn_meta[lpn].short_interval_count,
+                    ssd->lpn_meta[lpn].update_interval,
+                    ssd->lpn_meta[lpn].last_write_seq,
+                    ssd->lpn_meta[lpn].last_decay_epoch);
             EXP_LOG("[WRITE] lpn=%lu -> " PPA_FMT " (secret)\n",
                     lpn, PPA_ARG(&ppa));
         }

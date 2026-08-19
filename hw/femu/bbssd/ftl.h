@@ -55,7 +55,9 @@ typedef enum LineClass {
 typedef struct LpnMeta {
     uint64_t last_write_seq; /* 마지막 host page-write sequence */
     uint64_t update_interval; /* 직전 write와 현재 write의 sequence 차이 */
-    uint32_t write_count; /* 이 LPN에서 관찰한 host write 수 */
+    uint64_t last_decay_epoch; /* 이 LPN에 마지막으로 적용한 lazy decay epoch */
+    uint32_t access_count; /* decay가 반영된 host-write 빈도 */
+    uint32_t short_interval_count; /* T 이하 rewrite의 반복 횟수 */
     LpnState state; /* 현재 UNSEEN/COLD/HOT 분류 */
 } LpnMeta;
 
@@ -351,11 +353,16 @@ struct ssd {
     uint64_t cold_pool_empty_count;
     uint64_t borrow_count;
     uint64_t emergency_gc_count;
+    uint64_t decay_application_count;
 
-    /* non-FDP Phase 2: LPN별 host-write 이력과 현재 분류 */
+    /* non-FDP V2: LPN별 host-write 이력과 현재 분류 */
     LpnMeta *lpn_meta;
     uint64_t host_write_seq;
     uint64_t hot_rewrite_window;
+    uint64_t hot_decay_window;
+    uint32_t hot_access_threshold;
+    uint32_t hot_confirmation_threshold;
+    bool hot_decay_enabled;
 
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring **to_ftl;
