@@ -1,0 +1,90 @@
+FEMU BBSSD FTL V1 reproducibility commands
+Run ID: 20260819_025314_KST
+Working directory: <REPO_ROOT> (the local FEMU repository root)
+
+Notes
+-----
+- Commands below document the valid run procedure. Substitute <TASK_KEY> with an SSH key authorized in the Guest.
+- Raw writes target only Guest /dev/nvme0n1 after the listed safety checks.
+- A fresh QEMU process/device state is required for each threshold.
+- Do not include runs/T64_attempt1 in analysis; it is a preserved invalid launch attempt.
+
+Repository and branch
+---------------------
+git status --short --branch
+git rev-parse HEAD
+git branch -m hotcold hotcold/base
+git switch -c hotcold/v1 hotcold/base
+
+Build
+-----
+cp hw/femu/scripts/run-blackbox.sh build-femu/run-blackbox.sh
+ninja -C build-femu qemu-system-x86_64
+git diff --check
+
+Per-threshold host launch (T in 64 256 1024 4096)
+---------------------------------------------------
+T=64  # finish and shut down this run before repeating with 256, 1024, 4096
+mkdir -p experiment_results/ftl_hotcold/v1/20260819_025314_KST/runs/T${T}
+cd build-femu
+nohup setsid env FEMU_HOT_REWRITE_WINDOW=${T} FEMU_EXP_LOG=1 FEMU_SECRET=V1GC ./run-blackbox.sh > ../experiment_results/ftl_hotcold/v1/20260819_025314_KST/runs/T${T}/host_console.txt 2>&1 < /dev/null &
+echo $! > ../experiment_results/ftl_hotcold/v1/20260819_025314_KST/runs/T${T}/vm.pid
+cd ..
+
+Guest SSH template
+------------------
+ssh -i <TASK_KEY> -p 8080 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/tmp/femu_v1_known_hosts femu@127.0.0.1 '<GUEST_COMMAND>'
+
+Guest destructive-write safety gate
+-----------------------------------
+date --iso-8601=seconds
+lsblk -b -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT
+sudo -n blockdev --getsize64 /dev/nvme0n1
+findmnt /dev/nvme0n1; echo findmnt_rc=$?
+test "$(sudo -n blockdev --getsize64 /dev/nvme0n1)" = 6442450944
+test ! -e /dev/nvme0n1p1
+fio --version
+nvme version
+
+Guest preconditioning
+---------------------
+sudo -n fio --name=fill --filename=/dev/nvme0n1 --direct=1 --ioengine=libaio --rw=write --bs=1M --iodepth=32 --numjobs=1 --size=6G --group_reporting=1
+echo fill_rc=$?
+
+Marker, precondition stats, and measurement reset
+-------------------------------------------------
+printf V1GC | sudo -n dd of=/dev/nvme0n1 bs=4 count=1 conv=notrunc status=none
+printf V1GC | sudo -n dd of=/dev/nvme0n1 bs=4 count=1 conv=notrunc status=none
+sync
+sudo -n nvme admin-passthru /dev/nvme0 --opcode=0xef --cdw10=5
+
+Guest measurement (T substituted in job and filenames)
+------------------------------------------------------
+nohup sh -c 'date --iso-8601=seconds; sudo -n fio --name=v1-t<T> --filename=/dev/nvme0n1 --offset=1G --size=4G --direct=1 --ioengine=libaio --rw=randwrite --bs=16k --iodepth=128 --numjobs=32 --time_based=1 --runtime=300 --random_distribution=zipf:0.99 --randrepeat=1 --randseed=20260819 --group_reporting=1; rc=$?; date --iso-8601=seconds; echo measurement_rc=$rc; echo $rc > /tmp/v1_t<T>_measure.rc' > /tmp/v1_t<T>_measure.out 2>&1 < /dev/null &
+
+Guest completion and final stats
+--------------------------------
+test -f /tmp/v1_t<T>_measure.rc && cat /tmp/v1_t<T>_measure.rc
+cat /tmp/v1_t<T>_measure.out
+sleep 2
+sync
+sudo -n nvme admin-passthru /dev/nvme0 --opcode=0xef --cdw10=5
+sudo -n poweroff
+
+Host artifact extraction
+------------------------
+cp build-femu/log experiment_results/ftl_hotcold/v1/20260819_025314_KST/runs/T${T}/femu.log
+rg 'BBSSD-STATS' experiment_results/ftl_hotcold/v1/20260819_025314_KST/runs/T${T}/femu.log | tail -n 2
+rg '\[GC_MOVE\] lpn=0' experiment_results/ftl_hotcold/v1/20260819_025314_KST/runs/T${T}/femu.log | tail -n 5
+
+Final verification
+------------------
+git diff --check
+ninja -C build-femu qemu-system-x86_64
+for T in 64 256 1024 4096; do tail -n 1 experiment_results/ftl_hotcold/v1/20260819_025314_KST/runs/T${T}/stats.txt; done
+for T in 64 256 1024 4096; do rg 'measurement_rc=0' experiment_results/ftl_hotcold/v1/20260819_025314_KST/runs/T${T}/fio.txt; done
+for T in 64 256 1024 4096; do test -s experiment_results/ftl_hotcold/v1/20260819_025314_KST/runs/T${T}/gc_marker.txt; done
+
+Patch capture
+-------------
+git diff --binary -- hw/femu/bbssd/ftl.h hw/femu/bbssd/ftl.c hw/femu/bbssd/bb.c hw/femu/scripts/run-blackbox.sh > experiment_results/ftl_hotcold/v1/20260819_025314_KST/source_changes.patch

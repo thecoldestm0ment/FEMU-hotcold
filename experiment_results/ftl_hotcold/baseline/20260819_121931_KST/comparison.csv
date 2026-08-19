@@ -1,0 +1,6 @@
+variant,threshold_pages,waf,waf_reduction_vs_no_separation_percent,fio_iops,iops_gain_vs_no_separation_percent
+no_separation,NA,7.946914,0.000000,8255,0.000000
+V1,64,7.646401,3.781506,8514,3.137492
+V1,256,7.589861,4.492977,8604,4.227741
+V1,1024,7.297968,8.166013,8908,7.910357
+V1,4096,6.861301,13.660812,9544,15.614779

@@ -1,0 +1,37 @@
+2026-08-18T18:47:04+00:00
+v1-t4096: (g=0): rw=randwrite, bs=(R) 16.0KiB-16.0KiB, (W) 16.0KiB-16.0KiB, (T) 16.0KiB-16.0KiB, ioengine=libaio, iodepth=128
+...
+fio-3.16
+Starting 32 processes
+
+v1-t4096: (groupid=0, jobs=32): err= 0: pid=1380: Tue Aug 18 18:52:09 2026
+  write: IOPS=9544, BW=149MiB/s (156MB/s)(43.8GiB/300532msec); 0 zone resets
+    slat (nsec): min=1891, max=1347.7M, avg=1216295.63, stdev=9260255.74
+    clat (usec): min=885, max=2375.0k, avg=427247.32, stdev=162241.54
+     lat (usec): min=1354, max=2375.0k, avg=428465.05, stdev=162573.21
+    clat percentiles (msec):
+     |  1.00th=[  109],  5.00th=[  209], 10.00th=[  239], 20.00th=[  292],
+     | 30.00th=[  334], 40.00th=[  380], 50.00th=[  405], 60.00th=[  447],
+     | 70.00th=[  498], 80.00th=[  550], 90.00th=[  617], 95.00th=[  693],
+     | 99.00th=[  869], 99.50th=[  953], 99.90th=[ 1653], 99.95th=[ 1770],
+     | 99.99th=[ 1955]
+   bw (  KiB/s): min= 4051, max=410115, per=100.00%, avg=152772.20, stdev=1729.58, samples=19143
+   iops        : min=  243, max=25630, avg=9543.84, stdev=108.13, samples=19143
+  lat (usec)   : 1000=0.01%
+  lat (msec)   : 2=0.01%, 4=0.01%, 10=0.01%, 20=0.02%, 50=0.22%
+  lat (msec)   : 100=0.39%, 250=9.90%, 500=61.38%, 750=25.08%, 1000=2.58%
+  lat (msec)   : 2000=0.40%, >=2000=0.01%
+  cpu          : usr=0.49%, sys=1.21%, ctx=985774, majf=0, minf=381
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, >=64=99.9%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.1%
+     issued rwts: total=0,2868355,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=128
+
+Run status group 0 (all jobs):
+  WRITE: bw=149MiB/s (156MB/s), 149MiB/s-149MiB/s (156MB/s-156MB/s), io=43.8GiB (46.0GB), run=300532-300532msec
+
+Disk stats (read/write):
+  nvme0n1: ios=53/2867609, merge=0/0, ticks=897/1161119463, in_queue=1155390452, util=99.77%
+2026-08-18T18:52:10+00:00
+measurement_rc=0

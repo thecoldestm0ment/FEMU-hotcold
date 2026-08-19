@@ -1,0 +1,35 @@
+FEMU BBSSD no-separation baseline
+Run ID: 20260819_121931_KST
+Source: 22ecac90f15bd90894a115c5ad05baba4258be36 (Phase 1: WAF counters)
+Placement: single write pointer; no LPN classifier; no Hot/Cold line pools
+Status: SUCCESS
+
+Baseline raw result
+-------------------
+host_page_writes=9929244
+nand_page_writes=78906848
+gc_page_writes=68977604
+gc_page_writes_per_host=6.946913985
+waf=7.946914
+fio_iops=8255
+fio_bw_mib_s=129
+fio_io_gib=37.9
+fio_runtime_ms=300702
+fill_rc=0
+measurement_rc=0
+counter_invariant=PASS
+
+Comparison with V1 threshold sweep
+----------------------------------
+T=64:   WAF 7.646401, baseline 대비 3.781506% 감소
+T=256:  WAF 7.589861, baseline 대비 4.492977% 감소
+T=1024: WAF 7.297968, baseline 대비 8.166013% 감소
+T=4096: WAF 6.861301, baseline 대비 13.660812% 감소
+
+Conclusion
+----------
+이 workload의 단일 실행에서는 모든 V1 Hot/Cold separation 설정이 무분리 baseline보다 WAF가 낮았다. 계획서 기본값 T=1024는 WAF를 8.17% 낮췄고, sweep 최적값 T=4096은 13.66% 낮췄다. 따라서 RQ1에는 긍정적인 근거가 생겼다. 단, 각 조건이 1회 실행이므로 반복 실험 없이 통계적 유의성을 주장할 수는 없다.
+
+Phase1에는 gc_count와 block_erases 계측이 없어 baseline의 average_gc_copy는 산출할 수 없다. host/nand/gc page-write counter와 WAF는 직접 계측했으며 nand_page_writes = host_page_writes + gc_page_writes가 성립한다.
+
+The initial VM launch failed before Guest boot because /dev/kvm was absent. KVM modules were loaded and the valid baseline was then run from a fresh VM. The failed boot log is preserved as run/host_console_attempt1_kvm_missing.txt and does not affect the result.

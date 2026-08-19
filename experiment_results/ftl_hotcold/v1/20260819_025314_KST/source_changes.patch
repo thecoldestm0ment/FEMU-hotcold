@@ -1,0 +1,286 @@
+diff --git a/hw/femu/bbssd/bb.c b/hw/femu/bbssd/bb.c
+index 147bdbb7a..7c6671f77 100644
+--- a/hw/femu/bbssd/bb.c
++++ b/hw/femu/bbssd/bb.c
+@@ -64,10 +64,7 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
+          */
+         if (!ssd->fdp_enabled) {
+             ssd_print_stats(ssd);
+-            ssd->host_page_writes = 0;
+-            ssd->nand_page_writes = 0;
+-            ssd->gc_page_writes = 0;
+-            ssd->block_erases = 0;
++            ssd_reset_stats(ssd);
+         }
+ 
+         /* counters are sharded per poller (see FemuPollerCtr); sum then reset */
+diff --git a/hw/femu/bbssd/ftl.c b/hw/femu/bbssd/ftl.c
+index e47e0057e..645f76c81 100644
+--- a/hw/femu/bbssd/ftl.c
++++ b/hw/femu/bbssd/ftl.c
+@@ -30,6 +30,47 @@ static void ssd_trim_fdp_style(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
+ static void ssd_reset_maptbl(struct ssd *ssd);
+ static void exp_load_cfg(void);
+ 
++/* V1 threshold sweep: unset means the documented 1024-page default. */
++static uint64_t ssd_load_hot_rewrite_window(void)
++{
++    const char *value = getenv("FEMU_HOT_REWRITE_WINDOW");
++    char *end = NULL;
++    unsigned long long parsed;
++
++    if (!value || value[0] == '\0') {
++        return HOT_REWRITE_WINDOW_DEFAULT;
++    }
++
++    errno = 0;
++    parsed = strtoull(value, &end, 0);
++    if (errno != 0 || end == value || *end != '\0' || parsed == 0) {
++        ftl_err("invalid FEMU_HOT_REWRITE_WINDOW='%s'\n", value);
++        abort();
++    }
++
++    return (uint64_t)parsed;
++}
++
++/* Reset measurement counters only. LPN history intentionally survives. */
++void ssd_reset_stats(struct ssd *ssd)
++{
++    ssd->host_page_writes = 0;
++    ssd->nand_page_writes = 0;
++    ssd->gc_page_writes = 0;
++    ssd->block_erases = 0;
++    ssd->gc_count = 0;
++    ssd->host_hot_writes = 0;
++    ssd->host_cold_writes = 0;
++    ssd->gc_hot_writes = 0;
++    ssd->gc_cold_writes = 0;
++    ssd->cold_to_hot_count = 0;
++    ssd->hot_to_cold_count = 0;
++    ssd->hot_pool_empty_count = 0;
++    ssd->cold_pool_empty_count = 0;
++    ssd->borrow_count = 0;
++    ssd->emergency_gc_count = 0;
++}
++
+ /*
+  * 현재까지 누적된 non-FDP page-write 통계와 WAF를 출력한다.
+  * FEMU_RESET_ACCT admin command가 실험 구간 끝에서 이 함수를 호출한다.
+@@ -37,6 +78,11 @@ static void exp_load_cfg(void);
+ void ssd_print_stats(struct ssd *ssd)
+ {
+     char waf[32];
++    char average_gc_copy[32];
++    char hot_write_ratio[32];
++    bool counters_valid =
++        ssd->nand_page_writes ==
++        ssd->host_page_writes + ssd->gc_page_writes;
+ 
+     if (ssd->host_page_writes == 0) {
+         snprintf(waf, sizeof(waf), "N/A");
+@@ -46,13 +92,50 @@ void ssd_print_stats(struct ssd *ssd)
+                  (double)ssd->host_page_writes);
+     }
+ 
+-    ftl_log("BBSSD-STATS host_page_writes=%" PRIu64
++    if (ssd->gc_count == 0) {
++        snprintf(average_gc_copy, sizeof(average_gc_copy), "N/A");
++    } else {
++        snprintf(average_gc_copy, sizeof(average_gc_copy), "%.6f",
++                 (double)ssd->gc_page_writes / (double)ssd->gc_count);
++    }
++
++    if (ssd->host_page_writes == 0) {
++        snprintf(hot_write_ratio, sizeof(hot_write_ratio), "N/A");
++    } else {
++        snprintf(hot_write_ratio, sizeof(hot_write_ratio), "%.6f",
++                 (double)ssd->host_hot_writes /
++                 (double)ssd->host_page_writes);
++    }
++
++    ftl_log("BBSSD-STATS version=V1 hot_rewrite_window=%" PRIu64
++            " host_page_writes=%" PRIu64
+             " nand_page_writes=%" PRIu64
+             " gc_page_writes=%" PRIu64
+             " block_erases=%" PRIu64
+-            " waf=%s\n",
+-            ssd->host_page_writes, ssd->nand_page_writes,
+-            ssd->gc_page_writes, ssd->block_erases, waf);
++            " waf=%s"
++            " gc_count=%" PRIu64
++            " average_gc_copy=%s"
++            " host_hot_writes=%" PRIu64
++            " host_cold_writes=%" PRIu64
++            " hot_write_ratio=%s"
++            " gc_hot_writes=%" PRIu64
++            " gc_cold_writes=%" PRIu64
++            " cold_to_hot_count=%" PRIu64
++            " hot_to_cold_count=%" PRIu64
++            " hot_pool_empty_count=%" PRIu64
++            " cold_pool_empty_count=%" PRIu64
++            " borrow_count=%" PRIu64
++            " emergency_gc_count=%" PRIu64
++            " counter_invariant=%s\n",
++            ssd->hot_rewrite_window, ssd->host_page_writes,
++            ssd->nand_page_writes, ssd->gc_page_writes,
++            ssd->block_erases, waf, ssd->gc_count, average_gc_copy,
++            ssd->host_hot_writes, ssd->host_cold_writes, hot_write_ratio,
++            ssd->gc_hot_writes, ssd->gc_cold_writes,
++            ssd->cold_to_hot_count, ssd->hot_to_cold_count,
++            ssd->hot_pool_empty_count, ssd->cold_pool_empty_count,
++            ssd->borrow_count, ssd->emergency_gc_count,
++            counters_valid ? "PASS" : "FAIL");
+ }
+ 
+ /*
+@@ -344,6 +427,11 @@ static struct line *get_next_free_line_by_class(struct ssd *ssd,
+ 
+     line = pop_free_line(requested, requested_cnt);
+     if (!line) {
++        if (data_class == LINE_CLASS_HOT) {
++            ssd->hot_pool_empty_count++;
++        } else {
++            ssd->cold_pool_empty_count++;
++        }
+         line = pop_free_line(fallback, fallback_cnt);
+         borrowed = true;
+     }
+@@ -357,6 +445,10 @@ static struct line *get_next_free_line_by_class(struct ssd *ssd,
+         abort();
+     }
+ 
++    if (borrowed) {
++        ssd->borrow_count++;
++    }
++
+     line->data_class = data_class;
+     lm->free_line_cnt--;
+     ssd_validate_free_line_counts(ssd);
+@@ -495,7 +587,7 @@ static void ssd_init_lpn_metadata(struct ssd *ssd)
+ 
+     /* UNSEEN을 0으로 정의했으므로 zero allocation이 모든 초기값을 만든다. */
+     ssd->lpn_meta = g_new0(LpnMeta, spp->tt_pgs);
+-    ssd->hot_rewrite_window = HOT_REWRITE_WINDOW_DEFAULT;
++    ssd->hot_rewrite_window = ssd_load_hot_rewrite_window();
+ 
+     metadata_bytes = (uint64_t)spp->tt_pgs * sizeof(*ssd->lpn_meta);
+     ftl_log("LPN metadata: entries=%d entry_size=%zu total=%" PRIu64
+@@ -508,10 +600,12 @@ static void ssd_init_lpn_metadata(struct ssd *ssd)
+ static void ssd_update_lpn_temperature(struct ssd *ssd, uint64_t lpn)
+ {
+     LpnMeta *meta;
++    LpnState previous_state;
+ 
+     ftl_assert(ssd->lpn_meta != NULL);
+     ftl_assert(valid_lpn(ssd, lpn));
+     meta = &ssd->lpn_meta[lpn];
++    previous_state = meta->state;
+ 
+     /* 0은 미관찰용으로 비우고, wrap 대신 64-bit 최댓값에서 포화시킨다. */
+     if (ssd->host_write_seq != UINT64_MAX) {
+@@ -529,6 +623,13 @@ static void ssd_update_lpn_temperature(struct ssd *ssd, uint64_t lpn)
+                       LPN_STATE_HOT : LPN_STATE_COLD;
+     }
+ 
++    if (previous_state == LPN_STATE_COLD && meta->state == LPN_STATE_HOT) {
++        ssd->cold_to_hot_count++;
++    } else if (previous_state == LPN_STATE_HOT &&
++               meta->state == LPN_STATE_COLD) {
++        ssd->hot_to_cold_count++;
++    }
++
+     meta->last_write_seq = ssd->host_write_seq;
+     /* count가 0으로 wrap해 UNSEEN처럼 보이지 않도록 포화시킨다. */
+     if (meta->write_count != UINT32_MAX) {
+@@ -572,11 +673,8 @@ void ssd_init(FemuCtrl *n)
+     /* data-remanence 실험용 환경 변수를 한 번만 읽는다(debug 전용, 기본 off). */
+     exp_load_cfg();
+ 
+-    /* Phase 1 통계는 SSD 초기화부터 누적한다. */
+-    ssd->host_page_writes = 0;
+-    ssd->nand_page_writes = 0;
+-    ssd->gc_page_writes = 0;
+-    ssd->block_erases = 0;
++    /* V1 통계는 SSD 초기화부터 누적한다. */
++    ssd_reset_stats(ssd);
+ 
+     ssd_init_params(spp, n);
+ 
+@@ -917,6 +1015,11 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
+     ftl_assert(valid_lpn(ssd, lpn));
+     /* GC는 온도 이력을 갱신하지 않고 현재 분류에 맞는 line으로 이동한다. */
+     wpp = ssd_select_write_pointer(ssd, lpn);
++    if (ssd->lpn_meta[lpn].state == LPN_STATE_HOT) {
++        ssd->gc_hot_writes++;
++    } else {
++        ssd->gc_cold_writes++;
++    }
+     new_ppa = get_new_page(wpp);
+     /* LPN -> 새 PPA 갱신 */
+     set_maptbl_ent(ssd, lpn, &new_ppa);
+@@ -1049,6 +1152,11 @@ static int do_gc(struct ssd *ssd, bool force)
+         return -1;
+     }
+ 
++    ssd->gc_count++;
++    if (force) {
++        ssd->emergency_gc_count++;
++    }
++
+     ppa.g.blk = victim_line->id;
+     ftl_debug("GC-ing line:%d,ipc=%d,victim=%d,full=%d,free=%d\n", ppa.g.blk,
+               victim_line->ipc, ssd->lm.victim_line_cnt, ssd->lm.full_line_cnt,
+@@ -1177,6 +1285,11 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
+ 
+         /* 갱신된 온도에 맞는 pointer에서 새 PPA를 배정한다. */
+         wpp = ssd_select_write_pointer(ssd, lpn);
++        if (ssd->lpn_meta[lpn].state == LPN_STATE_HOT) {
++            ssd->host_hot_writes++;
++        } else {
++            ssd->host_cold_writes++;
++        }
+         ppa = get_new_page(wpp);
+         set_maptbl_ent(ssd, lpn, &ppa);
+         set_rmap_ent(ssd, lpn, &ppa);
+diff --git a/hw/femu/bbssd/ftl.h b/hw/femu/bbssd/ftl.h
+index 4b821736d..4d365f23a 100644
+--- a/hw/femu/bbssd/ftl.h
++++ b/hw/femu/bbssd/ftl.h
+@@ -340,6 +340,17 @@ struct ssd {
+     uint64_t nand_page_writes;
+     uint64_t gc_page_writes;
+     uint64_t block_erases;
++    uint64_t gc_count;
++    uint64_t host_hot_writes;
++    uint64_t host_cold_writes;
++    uint64_t gc_hot_writes;
++    uint64_t gc_cold_writes;
++    uint64_t cold_to_hot_count;
++    uint64_t hot_to_cold_count;
++    uint64_t hot_pool_empty_count;
++    uint64_t cold_pool_empty_count;
++    uint64_t borrow_count;
++    uint64_t emergency_gc_count;
+ 
+     /* non-FDP Phase 2: LPN별 host-write 이력과 현재 분류 */
+     LpnMeta *lpn_meta;
+@@ -367,6 +378,7 @@ struct ssd {
+ 
+ void ssd_init(FemuCtrl *n);
+ void ssd_print_stats(struct ssd *ssd);
++void ssd_reset_stats(struct ssd *ssd);
+ 
+ /* NAND media-layer bridge (hw/femu/bbssd/ftl-media.c) */
+ void bb_nand_media_init(struct ssd *ssd);
+diff --git a/hw/femu/scripts/run-blackbox.sh b/hw/femu/scripts/run-blackbox.sh
+index 2780b87a6..f6a735983 100755
+--- a/hw/femu/scripts/run-blackbox.sh
++++ b/hw/femu/scripts/run-blackbox.sh
+@@ -62,6 +62,7 @@ fi
+ sudo FEMU_EXP_LOG=${FEMU_EXP_LOG} \
+      FEMU_SECRET=${FEMU_SECRET} \
+      FEMU_DUMP_LPN=${FEMU_DUMP_LPN} \
++     FEMU_HOT_REWRITE_WINDOW=${FEMU_HOT_REWRITE_WINDOW} \
+      ./qemu-system-x86_64 \
+     -name "FEMU-BBSSD-VM" \
+     -enable-kvm \

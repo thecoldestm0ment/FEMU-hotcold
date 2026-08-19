@@ -1,0 +1,51 @@
+FEMU BBSSD no-separation baseline commands
+Run ID: 20260819_121931_KST
+
+Source selection and build
+--------------------------
+REPO_ROOT=/path/to/FEMU
+BASELINE_WORKTREE=/tmp/femu_baseline_phase1
+git worktree add --detach "$BASELINE_WORKTREE" 22ecac90f
+mkdir -p "$BASELINE_WORKTREE/build-femu"
+cd "$BASELINE_WORKTREE/build-femu"
+../configure --enable-kvm --target-list=x86_64-softmmu --enable-slirp
+ninja qemu-system-x86_64
+cp ../hw/femu/scripts/run-blackbox.sh ./run-blackbox.sh
+
+VM launch
+---------
+modprobe kvm
+modprobe kvm_intel
+cd "$BASELINE_WORKTREE/build-femu"
+nohup setsid env FEMU_EXP_LOG=0 FEMU_SECRET= ./run-blackbox.sh > "$REPO_ROOT/experiment_results/ftl_hotcold/baseline/20260819_121931_KST/run/host_console.txt" 2>&1 < /dev/null &
+
+Persistent sudoers
+------------------
+Installed as /etc/sudoers.d/femu-experiments, owner root:root, mode 0440, and validated with `visudo -cf`.
+Installation used the femu account's existing sudo authentication once; no credential is stored in published results.
+
+Safety gate
+-----------
+lsblk -b -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT
+sudo -n /usr/sbin/blockdev --getsize64 /dev/nvme0n1
+findmnt /dev/nvme0n1
+test ! -e /dev/nvme0n1p1
+fio --version
+nvme version
+
+Preconditioning
+---------------
+sudo -n /usr/bin/fio --name=fill --filename=/dev/nvme0n1 --direct=1 --ioengine=libaio --rw=write --bs=1M --iodepth=32 --numjobs=1 --size=6G --group_reporting=1
+sync
+sudo -n /usr/sbin/nvme admin-passthru /dev/nvme0 --opcode=0xef --cdw10=5
+
+Measurement
+-----------
+sudo -n /usr/bin/fio --name=baseline --filename=/dev/nvme0n1 --offset=1G --size=4G --direct=1 --ioengine=libaio --rw=randwrite --bs=16k --iodepth=128 --numjobs=32 --time_based=1 --runtime=300 --random_distribution=zipf:0.99 --randrepeat=1 --randseed=20260819 --group_reporting=1
+sleep 2
+sync
+sudo -n /usr/sbin/nvme admin-passthru /dev/nvme0 --opcode=0xef --cdw10=5
+
+Shutdown
+--------
+sudo -n /usr/sbin/poweroff

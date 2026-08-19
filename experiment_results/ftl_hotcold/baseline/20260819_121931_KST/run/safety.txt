@@ -1,0 +1,16 @@
+2026-08-19T03:28:41+00:00
+NAME           SIZE TYPE FSTYPE   MOUNTPOINT
+fd0            4096 disk          
+loop0      57626624 loop squashfs /snap/core18/1880
+loop1      74735616 loop squashfs /snap/lxd/16099
+loop2      31334400 loop squashfs /snap/snapd/8542
+sda     85899345920 disk          
+├─sda1      1048576 part          
+└─sda2  85896200192 part ext4     /
+nvme0n1  6442450944 disk          
+device_bytes=6442450944
+safety_mount=PASS
+safety_partitions=PASS
+fio-3.16
+nvme version 1.9
+safety_check=PASS

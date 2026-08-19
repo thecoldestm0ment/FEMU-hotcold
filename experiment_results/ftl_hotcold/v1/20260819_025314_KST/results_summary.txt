@@ -1,0 +1,27 @@
+FEMU BBSSD FTL V1 threshold sweep
+Run ID: 20260819_025314_KST
+Branch: hotcold/v1
+Source commit: 74a95ec68700dc80334883f033ce34ae350176bc
+
+T(pages)  Hot ratio   WAF       GC writes/host  Avg GC copy    GC count  fio IOPS  BW(MiB/s)
+64        0.044104    7.646401  6.646401        14253.105737   4776      8514      133
+256       0.053446    7.589861  6.589861        14235.529412   4794      8604      134
+1024      0.095534    7.297968  6.297968        14151.711918   4766      8908      139
+4096      0.164796    6.861301  5.861301        14007.325765   4801      9544      149
+
+Best observed threshold: T=4096 pages (16 MiB logical write distance)
+WAF reduction vs T=64: 10.2676%
+WAF reduction vs default T=1024: 5.9834%
+Average GC copy reduction vs T=64: 1.7244%
+Hot write ratio increased monotonically: 4.4104% -> 5.3446% -> 9.5534% -> 16.4796%
+
+Validation:
+- fill_rc=0 and measurement_rc=0 for all four valid runs
+- nand_page_writes = host_page_writes + gc_page_writes for all runs
+- host_hot_writes + host_cold_writes = host_page_writes for all runs
+- gc_hot_writes + gc_cold_writes = gc_page_writes for all runs
+- counter_invariant=PASS for all runs
+- GC relocation of marker LPN 0 observed for all runs
+- hot_pool_empty_count=0, cold_pool_empty_count=6, borrow_count=6, emergency_gc_count=0 for every measurement
+
+One T=64 launch attempt lost the host-attached QEMU process after fio completed, before final stats capture. It was rejected and preserved in runs/T64_attempt1; T=64 was rerun from a fresh VM/device and only the valid rerun is included above.

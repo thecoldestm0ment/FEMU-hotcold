@@ -1,0 +1,9 @@
+CORRECTNESS_HOST_ROUTING_BEGIN
+threshold_pages=1024
+write_pointers=hot_line:64,cold_line:0
+first_write=[EXP] [WRITE] lpn=0 -> ch=0 lun=0 pl=0 blk=0 pg=0 (cold line)
+second_write=[EXP] [WRITE] lpn=0 -> ch=0 lun=0 pl=0 blk=64 pg=0 (hot line)
+stats=host_page_writes:2,host_hot_writes:1,host_cold_writes:1,cold_to_hot_count:1,counter_invariant:PASS
+result=PASS
+source=correctness/femu.log
+CORRECTNESS_HOST_ROUTING_END

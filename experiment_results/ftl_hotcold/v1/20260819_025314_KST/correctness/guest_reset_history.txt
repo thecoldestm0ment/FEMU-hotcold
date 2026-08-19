@@ -1,0 +1,9 @@
+CORRECTNESS_RESET_HISTORY_BEGIN
+threshold_pages=1024
+before_reset=host_page_writes:2,host_hot_writes:1,host_cold_writes:1,cold_to_hot_count:1
+after_reset_third_write=[EXP] [WRITE] lpn=0 -> ch=1 lun=0 pl=0 blk=64 pg=0 (hot line)
+after_reset_stats=host_page_writes:1,host_hot_writes:1,host_cold_writes:0,cold_to_hot_count:0,counter_invariant:PASS
+interpretation=statistics reset cleared counters but preserved the LPN's HOT state/history
+result=PASS
+source=correctness/femu.log
+CORRECTNESS_RESET_HISTORY_END

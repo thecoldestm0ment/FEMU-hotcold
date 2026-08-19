@@ -1,0 +1,5 @@
+[EXP] [GC_MOVE] lpn=0 ch=3 lun=4 pl=0 blk=116 pg=14 -> ch=2 lun=4 pl=0 blk=117 pg=9
+[EXP] [GC_MOVE] lpn=0 ch=2 lun=4 pl=0 blk=117 pg=9 -> ch=6 lun=3 pl=0 blk=118 pg=6
+[EXP] [GC_MOVE] lpn=0 ch=6 lun=3 pl=0 blk=118 pg=6 -> ch=1 lun=0 pl=0 blk=119 pg=16
+[EXP] [GC_MOVE] lpn=0 ch=1 lun=0 pl=0 blk=119 pg=16 -> ch=4 lun=3 pl=0 blk=120 pg=2
+[EXP] [GC_MOVE] lpn=0 ch=4 lun=3 pl=0 blk=120 pg=2 -> ch=3 lun=6 pl=0 blk=121 pg=9

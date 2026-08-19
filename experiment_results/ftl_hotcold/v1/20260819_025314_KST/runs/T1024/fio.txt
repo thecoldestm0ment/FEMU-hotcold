@@ -1,0 +1,36 @@
+2026-08-18T18:36:58+00:00
+v1-t1024: (g=0): rw=randwrite, bs=(R) 16.0KiB-16.0KiB, (W) 16.0KiB-16.0KiB, (T) 16.0KiB-16.0KiB, ioengine=libaio, iodepth=128
+...
+fio-3.16
+Starting 32 processes
+
+v1-t1024: (groupid=0, jobs=32): err= 0: pid=1338: Tue Aug 18 18:42:03 2026
+  write: IOPS=8908, BW=139MiB/s (146MB/s)(40.9GiB/300549msec); 0 zone resets
+    slat (usec): min=2, max=1223.6k, avg=1298.66, stdev=10647.57
+    clat (usec): min=1095, max=2472.3k, avg=457678.80, stdev=173534.66
+     lat (usec): min=1270, max=2472.3k, avg=458979.52, stdev=173860.84
+    clat percentiles (msec):
+     |  1.00th=[  138],  5.00th=[  215], 10.00th=[  271], 20.00th=[  326],
+     | 30.00th=[  380], 40.00th=[  397], 50.00th=[  443], 60.00th=[  493],
+     | 70.00th=[  514], 80.00th=[  567], 90.00th=[  659], 95.00th=[  726],
+     | 99.00th=[  953], 99.50th=[ 1267], 99.90th=[ 1620], 99.95th=[ 1737],
+     | 99.99th=[ 2005]
+   bw (  KiB/s): min= 4125, max=383276, per=100.00%, avg=143021.18, stdev=1597.52, samples=19029
+   iops        : min=  246, max=23948, avg=8934.74, stdev=99.88, samples=19029
+  lat (msec)   : 2=0.01%, 4=0.01%, 10=0.01%, 20=0.06%, 50=0.16%
+  lat (msec)   : 100=0.24%, 250=7.21%, 500=57.78%, 750=30.45%, 1000=3.24%
+  lat (msec)   : 2000=0.84%, >=2000=0.01%
+  cpu          : usr=0.43%, sys=1.12%, ctx=820174, majf=0, minf=379
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, >=64=99.9%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.1%
+     issued rwts: total=0,2677334,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=128
+
+Run status group 0 (all jobs):
+  WRITE: bw=139MiB/s (146MB/s), 139MiB/s-139MiB/s (146MB/s-146MB/s), io=40.9GiB (43.9GB), run=300549-300549msec
+
+Disk stats (read/write):
+  nvme0n1: ios=52/2676051, merge=0/0, ticks=162/1150880491, in_queue=1145527788, util=99.41%
+2026-08-18T18:42:04+00:00
+measurement_rc=0

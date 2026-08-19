@@ -1,0 +1,50 @@
+FEMU BBSSD no-separation baseline consolidated terminal output
+Run ID: 20260819_121931_KST
+
+[source]
+HEAD=22ecac90f15bd90894a115c5ad05baba4258be36
+subject=Phase 1: WAF 측정용 카운터, 출력함수
+placement=single write pointer, no classifier, no Hot/Cold pool
+
+[build]
+QEMU emulator version 10.1.0
+ninja qemu-system-x86_64: exit=0
+
+[transient launch]
+attempt1: failed before Guest boot because /dev/kvm was absent
+recovery: modprobe kvm; modprobe kvm_intel
+valid launch: success from fresh VM/device state
+
+[persistent sudo]
+/etc/sudoers.d/femu-experiments: parsed OK
+sudoers_install_rc=0
+visudo_rc=0
+legacy temporary broad rule remove rc=0
+final file: root:root, mode 0440, remains in Guest image
+
+[safety]
+/dev/nvme0n1 bytes=6442450944
+mount=none
+partitions=none
+Guest root=/dev/sda2
+fio-3.16
+nvme version 1.9
+safety_check=PASS
+
+[preconditioning]
+WRITE: bw=282MiB/s (296MB/s), io=6144MiB, run=21774msec
+fill_rc=0
+BBSSD-STATS host_page_writes=1572864 nand_page_writes=1572864 gc_page_writes=0 waf=1.000000
+precondition_boundary_rc=0
+
+[measurement]
+write: IOPS=8255, BW=129MiB/s (135MB/s)(37.9GiB/300702msec)
+measurement_rc=0
+BBSSD-STATS host_page_writes=9929244 nand_page_writes=78906848 gc_page_writes=68977604 waf=7.946914
+measurement_boundary_rc=0
+counter_invariant=PASS
+
+[shutdown]
+sudo -n /usr/sbin/poweroff invoked
+Guest reached Power-Off
+QEMU process exited

@@ -1,0 +1,83 @@
+FEMU BBSSD FTL V1 consolidated terminal output
+Run ID: 20260819_025314_KST
+Host time zone: Asia/Seoul
+
+This file consolidates the decisive stdout/stderr and exit status from the run.
+Full QEMU/Guest console and fio output are preserved per threshold under runs/.
+
+[repository]
+$ git branch --show-current
+hotcold/v1
+$ git rev-parse HEAD
+74a95ec68700dc80334883f033ce34ae350176bc
+
+[build]
+$ ninja -C build-femu qemu-system-x86_64
+ninja: Entering directory `build-femu'
+[successful build; exit=0]
+$ git diff --check
+[no output; exit=0]
+$ build-femu/qemu-system-x86_64 --version
+QEMU emulator version 10.1.0
+
+[correctness: host routing and reset history, T=1024]
+Write pointers: hot_line=64 cold_line=0 free=126 hot_free=63 cold_free=63
+[EXP] [WRITE] lpn=0 -> ch=0 lun=0 pl=0 blk=0 pg=0 (secret)
+[EXP] [WRITE] lpn=0 -> ch=0 lun=0 pl=0 blk=64 pg=0 (secret)
+BBSSD-STATS ... host_page_writes=2 host_hot_writes=1 host_cold_writes=1 cold_to_hot_count=1 counter_invariant=PASS
+[statistics reset]
+[EXP] [WRITE] lpn=0 -> ch=1 lun=0 pl=0 blk=64 pg=0 (secret)
+BBSSD-STATS ... host_page_writes=1 host_hot_writes=1 host_cold_writes=0 counter_invariant=PASS
+
+[safety gate repeated before each valid run]
+/dev/nvme0n1 bytes: 6442450944
+/dev/nvme0n1 partitions: none
+findmnt /dev/nvme0n1: no result (rc=1)
+Guest root: /dev/sda2, 80 GiB, ext4, mounted at /
+fio-3.16
+nvme version 1.9
+
+[T=64 valid rerun]
+fill_rc=0
+write: IOPS=8514, BW=133MiB/s (140MB/s)(39.1GiB/300710msec)
+measurement_rc=0
+BBSSD-STATS version=V1 hot_rewrite_window=64 host_page_writes=10242060 nand_page_writes=78314893 gc_page_writes=68072833 block_erases=305664 waf=7.646401 gc_count=4776 average_gc_copy=14253.105737 host_hot_writes=451716 host_cold_writes=9790344 hot_write_ratio=0.044104 gc_hot_writes=12076 gc_cold_writes=68060757 cold_to_hot_count=329292 hot_to_cold_count=328776 hot_pool_empty_count=0 cold_pool_empty_count=6 borrow_count=6 emergency_gc_count=0 counter_invariant=PASS
+GC marker relocation: observed
+
+[T=256]
+fill_rc=0
+write: IOPS=8604, BW=134MiB/s (141MB/s)(39.5GiB/300885msec)
+measurement_rc=0
+BBSSD-STATS version=V1 hot_rewrite_window=256 host_page_writes=10356080 nand_page_writes=78601208 gc_page_writes=68245128 block_erases=306816 waf=7.589861 gc_count=4794 average_gc_copy=14235.529412 host_hot_writes=553488 host_cold_writes=9802592 hot_write_ratio=0.053446 gc_hot_writes=24840 gc_cold_writes=68220288 cold_to_hot_count=378764 hot_to_cold_count=378012 hot_pool_empty_count=0 cold_pool_empty_count=6 borrow_count=6 emergency_gc_count=0 counter_invariant=PASS
+GC marker relocation: observed
+
+[T=1024]
+fill_rc=0
+write: IOPS=8908, BW=139MiB/s (146MB/s)(40.9GiB/300549msec)
+measurement_rc=0
+BBSSD-STATS version=V1 hot_rewrite_window=1024 host_page_writes=10709336 nand_page_writes=78156395 gc_page_writes=67447059 block_erases=305024 waf=7.297968 gc_count=4766 average_gc_copy=14151.711918 host_hot_writes=1023104 host_cold_writes=9686232 hot_write_ratio=0.095534 gc_hot_writes=100360 gc_cold_writes=67346699 cold_to_hot_count=586460 hot_to_cold_count=584416 hot_pool_empty_count=0 cold_pool_empty_count=6 borrow_count=6 emergency_gc_count=0 counter_invariant=PASS
+GC marker relocation: observed
+
+[T=4096]
+fill_rc=0
+write: IOPS=9544, BW=149MiB/s (156MB/s)(43.8GiB/300532msec)
+measurement_rc=0
+BBSSD-STATS version=V1 hot_rewrite_window=4096 host_page_writes=11473420 nand_page_writes=78722591 gc_page_writes=67249171 block_erases=307264 waf=6.861301 gc_count=4801 average_gc_copy=14007.325765 host_hot_writes=1890776 host_cold_writes=9582644 hot_write_ratio=0.164796 gc_hot_writes=560836 gc_cold_writes=66688335 cold_to_hot_count=750932 hot_to_cold_count=746296 hot_pool_empty_count=0 cold_pool_empty_count=6 borrow_count=6 emergency_gc_count=0 counter_invariant=PASS
+GC marker relocation: observed
+
+[invalid attempt disclosure]
+The first T=64 launch completed fio but lost the host-attached QEMU process before final stats capture. It was rejected, preserved as runs/T64_attempt1, and rerun from fresh state. It contributes no row to results.csv.
+
+[Guest cleanup]
+temporary SSH public-key removal: PASS
+temporary sudoers cleanup/poweroff command: exit=0
+final T=4096 QEMU process: exited
+
+[final audit]
+CSV_VALIDATION=PASS rows=4
+RAW_TO_CSV_MATCH=PASS
+ARTIFACT_VALIDATION=PASS
+PRIVATE_KEY_SCAN=PASS
+VM_PROCESS_CHECK=PASS
+ninja final build: exit=0
+git diff --check: exit=0
