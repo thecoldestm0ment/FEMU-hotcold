@@ -1,0 +1,18 @@
+FEMU no-separation corrected baseline
+run_id=20260819_134044_KST
+source_commit=f28e6fbb4e91406e0ccb6027fdc2f454bd2bb5ce
+measurement_rc=0
+host_page_writes=9928972
+nand_page_writes=78934259
+gc_page_writes=69005287
+block_erases=308096
+waf=7.949892
+gc_count=4814
+average_gc_copy=14334.293103
+counter_invariant=PASS
+fio_iops=8254
+fio_bw_mib_s=129
+fio_io_gib=37.9
+fio_runtime_ms=300699
+guest_poweroff=PASS
+temporary_ssh_key_removed=PASS

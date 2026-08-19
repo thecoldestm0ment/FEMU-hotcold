@@ -1,0 +1,24 @@
+CORRECTED_BASELINE_RUN_BEGIN
+run_id=20260819_134044_KST
+safety_gate=PASS
+target=/dev/nvme0n1
+target_size_bytes=6442450944
+target_unmounted=PASS
+target_partition_absent=PASS
+root_device=/dev/sda2
+fio_version=fio-3.16
+nvme_cli_version=1.9
+sudoers_path=/etc/sudoers.d/femu-experiments
+sudoers_owner=root:root
+sudoers_mode=0440
+sudoers_visudo=PASS
+fill_rc=0
+marker1_rc=0
+marker2_rc=0
+precondition_stats=[FEMU] FTL-Log: BBSSD-STATS version=BASELINE host_page_writes=1572866 nand_page_writes=1572866 gc_page_writes=0 block_erases=0 waf=1.000000 gc_count=0 average_gc_copy=N/A counter_invariant=PASS
+measurement_rc=0
+fio=IOPS:8254,BW:129MiB/s,IO:37.9GiB,runtime:300699ms
+measurement_stats=[FEMU] FTL-Log: BBSSD-STATS version=BASELINE host_page_writes=9928972 nand_page_writes=78934259 gc_page_writes=69005287 block_erases=308096 waf=7.949892 gc_count=4814 average_gc_copy=14334.293103 counter_invariant=PASS
+temporary_ssh_key_removed=PASS
+guest_poweroff=PASS
+CORRECTED_BASELINE_RUN_END

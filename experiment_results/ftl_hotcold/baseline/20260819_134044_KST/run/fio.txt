@@ -1,0 +1,37 @@
+2026-08-19T04:44:25+00:00
+baseline: (g=0): rw=randwrite, bs=(R) 16.0KiB-16.0KiB, (W) 16.0KiB-16.0KiB, (T) 16.0KiB-16.0KiB, ioengine=libaio, iodepth=128
+...
+fio-3.16
+Starting 32 processes
+
+baseline: (groupid=0, jobs=32): err= 0: pid=1534: Wed Aug 19 04:49:29 2026
+  write: IOPS=8254, BW=129MiB/s (135MB/s)(37.9GiB/300699msec); 0 zone resets
+    slat (nsec): min=1484, max=758928k, avg=1436030.61, stdev=10547415.36
+    clat (usec): min=202, max=2691.3k, avg=494255.56, stdev=169696.14
+     lat (usec): min=1255, max=2712.0k, avg=495692.08, stdev=170004.55
+    clat percentiles (msec):
+     |  1.00th=[  165],  5.00th=[  266], 10.00th=[  288], 20.00th=[  347],
+     | 30.00th=[  388], 40.00th=[  439], 50.00th=[  489], 60.00th=[  510],
+     | 70.00th=[  558], 80.00th=[  617], 90.00th=[  718], 95.00th=[  776],
+     | 99.00th=[  919], 99.50th=[  995], 99.90th=[ 1770], 99.95th=[ 1905],
+     | 99.99th=[ 2467]
+   bw (  KiB/s): min= 3397, max=363635, per=100.00%, avg=132436.56, stdev=1460.38, samples=19141
+   iops        : min=  197, max=22722, avg=8273.95, stdev=91.30, samples=19141
+  lat (usec)   : 250=0.01%, 750=0.01%
+  lat (msec)   : 2=0.01%, 4=0.01%, 10=0.01%, 20=0.01%, 50=0.02%
+  lat (msec)   : 100=0.12%, 250=4.22%, 500=52.18%, 750=37.03%, 1000=5.95%
+  lat (msec)   : 2000=0.44%, >=2000=0.03%
+  cpu          : usr=0.35%, sys=0.80%, ctx=899557, majf=0, minf=353
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, >=64=99.9%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.1%
+     issued rwts: total=0,2482243,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=128
+
+Run status group 0 (all jobs):
+  WRITE: bw=129MiB/s (135MB/s), 129MiB/s-129MiB/s (135MB/s-135MB/s), io=37.9GiB (40.7GB), run=300699-300699msec
+
+Disk stats (read/write):
+  nvme0n1: ios=51/2480831, merge=0/0, ticks=16/1168807854, in_queue=1163853212, util=99.96%
+2026-08-19T04:49:30+00:00
+measurement_rc=0
