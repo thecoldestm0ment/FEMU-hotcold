@@ -133,3 +133,27 @@ trace-ust-all.c
 build-femu/
 build/
 /hw/femu/bbssd/참고자료
+
+# FEMU experiment artifacts kept locally (applies to V1/V2/V2.5/baseline).
+# Curated CSV/Markdown summaries, fio output, and stats remain publishable.
+/experiment_results/**/host_console*.txt
+/experiment_results/**/vm.pid
+/experiment_results/**/qmp-sock
+/experiment_results/**/sudo_setup.txt
+/experiment_results/**/*_attempt*/
+
+# Temporary experiment credentials and SSH client state.
+/experiment_results/**/*askpass*
+/experiment_results/**/*known_hosts*
+/experiment_results/**/*_ed25519
+/experiment_results/**/*_ed25519.pub
+/experiment_results/**/id_rsa*
+/experiment_results/**/id_ed25519*
+/experiment_results/**/*.pem
+/experiment_results/**/*.key
+
+# Put detailed host inventory here when needed; it stays local.
+/experiment_results/**/machine_environment*.txt
+
+# V1 results are tracked on hotcold/v1 and intentionally not duplicated on base.
+/experiment_results/ftl_hotcold/v1/

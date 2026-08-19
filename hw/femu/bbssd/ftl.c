@@ -29,6 +29,16 @@ static void ssd_trim_fdp_style(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
 static void ssd_reset_maptbl(struct ssd *ssd);
 static void exp_load_cfg(void);
 
+/* Reset measurement counters without changing the FTL mapping/state. */
+void ssd_reset_stats(struct ssd *ssd)
+{
+    ssd->host_page_writes = 0;
+    ssd->nand_page_writes = 0;
+    ssd->gc_page_writes = 0;
+    ssd->block_erases = 0;
+    ssd->gc_count = 0;
+}
+
 /*
  * 현재까지 누적된 non-FDP page-write 통계와 WAF를 출력한다.
  * FEMU_RESET_ACCT admin command가 실험 구간 끝에서 이 함수를 호출한다.
@@ -36,6 +46,10 @@ static void exp_load_cfg(void);
 void ssd_print_stats(struct ssd *ssd)
 {
     char waf[32];
+    char average_gc_copy[32];
+    bool counters_valid =
+        ssd->nand_page_writes ==
+        ssd->host_page_writes + ssd->gc_page_writes;
 
     if (ssd->host_page_writes == 0) {
         snprintf(waf, sizeof(waf), "N/A");
@@ -45,12 +59,25 @@ void ssd_print_stats(struct ssd *ssd)
                  (double)ssd->host_page_writes);
     }
 
-    ftl_log("BBSSD-STATS host_page_writes=%" PRIu64
+    if (ssd->gc_count == 0) {
+        snprintf(average_gc_copy, sizeof(average_gc_copy), "N/A");
+    } else {
+        snprintf(average_gc_copy, sizeof(average_gc_copy), "%.6f",
+                 (double)ssd->gc_page_writes / (double)ssd->gc_count);
+    }
+
+    ftl_log("BBSSD-STATS version=BASELINE host_page_writes=%" PRIu64
             " nand_page_writes=%" PRIu64
             " gc_page_writes=%" PRIu64
-            " waf=%s\n",
+            " block_erases=%" PRIu64
+            " waf=%s"
+            " gc_count=%" PRIu64
+            " average_gc_copy=%s"
+            " counter_invariant=%s\n",
             ssd->host_page_writes, ssd->nand_page_writes,
-            ssd->gc_page_writes, waf);
+            ssd->gc_page_writes, ssd->block_erases, waf,
+            ssd->gc_count, average_gc_copy,
+            counters_valid ? "PASS" : "FAIL");
 }
 
 /*
@@ -361,10 +388,8 @@ void ssd_init(FemuCtrl *n)
     /* data-remanence 실험용 환경 변수를 한 번만 읽는다(debug 전용, 기본 off). */
     exp_load_cfg();
 
-    /* Phase 1 통계는 SSD 초기화부터 누적한다. */
-    ssd->host_page_writes = 0;
-    ssd->nand_page_writes = 0;
-    ssd->gc_page_writes = 0;
+    /* Baseline 통계는 SSD 초기화부터 누적한다. */
+    ssd_reset_stats(ssd);
 
     ssd_init_params(spp, n);
 
@@ -665,6 +690,7 @@ static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
     blk->ipc = 0;
     blk->vpc = 0;
     blk->erase_cnt++;
+    ssd->block_erases++;
     if (exp_watch_blk[ppa->g.blk])
         EXP_LOG("[ERASE] " PPA_FMT " erase_cnt=%d (vpc/ipc reset)\n",
                 PPA_ARG(ppa), blk->erase_cnt);
@@ -811,6 +837,9 @@ static int do_gc(struct ssd *ssd, bool force)
     if (!victim_line) {
         return -1;
     }
+
+    /* A successful victim-line selection defines one GC cycle. */
+    ssd->gc_count++;
 
     ppa.g.blk = victim_line->id;
     ftl_debug("GC-ing line:%d,ipc=%d,victim=%d,full=%d,free=%d\n", ppa.g.blk,

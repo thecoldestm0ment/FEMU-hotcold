@@ -310,6 +310,8 @@ struct ssd {
     uint64_t host_page_writes;
     uint64_t nand_page_writes;
     uint64_t gc_page_writes;
+    uint64_t block_erases;
+    uint64_t gc_count;
 
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring **to_ftl;
@@ -332,6 +334,7 @@ struct ssd {
 
 void ssd_init(FemuCtrl *n);
 void ssd_print_stats(struct ssd *ssd);
+void ssd_reset_stats(struct ssd *ssd);
 
 /* NAND media-layer bridge (hw/femu/bbssd/ftl-media.c) */
 void bb_nand_media_init(struct ssd *ssd);
