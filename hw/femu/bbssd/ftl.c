@@ -49,7 +49,7 @@ static uint64_t ssd_load_positive_u64(const char *name, uint64_t default_value)
     if (value[0] < '0' || value[0] > '9' ||
         errno != 0 || end == value || *end != '\0' || parsed == 0) {
         ftl_err("invalid %s='%s' (expected positive integer)\n", name, value);
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     return (uint64_t)parsed;
@@ -62,7 +62,7 @@ static uint32_t ssd_load_positive_u32(const char *name, uint32_t default_value)
     if (parsed > UINT32_MAX) {
         ftl_err("invalid %s='%" PRIu64 "' (maximum %u)\n",
                 name, parsed, UINT32_MAX);
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     return (uint32_t)parsed;
@@ -86,7 +86,7 @@ static bool ssd_load_bool(const char *name, bool default_value)
 
     ftl_err("invalid %s='%s' (expected 1/0, on/off, or true/false)\n",
             name, value);
-    abort();
+    exit(EXIT_FAILURE);
 }
 
 /* Reset measurement counters only. LPN history intentionally survives. */

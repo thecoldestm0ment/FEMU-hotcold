@@ -1,4 +1,6 @@
 #!/bin/bash
+set -o pipefail
+
 # Huaicheng Li <huaicheng@cs.uchicago.edu>
 # Run FEMU as a black-box SSD (FTL managed by the device)
 
