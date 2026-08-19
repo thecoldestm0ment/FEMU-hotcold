@@ -1,0 +1,10 @@
+V2_GC_READ_ONLY_TRACE_BEGIN
+[GC_MOVE] lpn=0 state=COLD access=1 short=0 last_seq=2566169 decay_epoch=320771 ch=6 lun=7 pl=0 blk=17 pg=202 -> ch=3 lun=4 pl=0 blk=100 pg=4
+[GC_MOVE] lpn=0 state=COLD access=1 short=0 last_seq=2566169 decay_epoch=320771 ch=3 lun=4 pl=0 blk=100 pg=4 -> ch=4 lun=3 pl=0 blk=28 pg=63
+[GC_MOVE] lpn=0 state=COLD access=1 short=0 last_seq=2566169 decay_epoch=320771 ch=4 lun=3 pl=0 blk=28 pg=63 -> ch=5 lun=0 pl=0 blk=47 pg=100
+[GC_MOVE] lpn=0 state=COLD access=1 short=0 last_seq=2566169 decay_epoch=320771 ch=5 lun=0 pl=0 blk=47 pg=100 -> ch=4 lun=5 pl=0 blk=101 pg=7
+[GC_MOVE] lpn=0 state=COLD access=1 short=0 last_seq=2566169 decay_epoch=320771 ch=4 lun=5 pl=0 blk=101 pg=7 -> ch=3 lun=1 pl=0 blk=42 pg=77
+metadata_identical_across_five_gc_moves=PASS
+gc_history_mutation=not_observed
+routing_state=COLD
+V2_GC_READ_ONLY_TRACE_END

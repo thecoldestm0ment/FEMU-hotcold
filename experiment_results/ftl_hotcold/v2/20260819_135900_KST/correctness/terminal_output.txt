@@ -1,0 +1,16 @@
+V2_CORRECTNESS_BEGIN
+init=LPN metadata entries:2097152 entry_size:40 total:80MiB T:1024 A:3 C:2 D:8 decay:on
+write_pointers=hot_line:64,cold_line:0
+safety_gate=PASS
+sudoers=persistent,root:root,0440,visudo:PASS,exact_commands_only
+promotion=COLD(access1,short0)->COLD(access2,short1)->HOT(access3,short2),PASS
+decay=HOT(access3,short2,epoch196608)->COLD(access1,short1,epoch196610),PASS
+reacquire=COLD(access2,short2)->HOT(access3,short3),PASS
+trim=DSM_success,next_write_COLD(access1,short0,interval0),PASS
+gc_run_1=gc_count:453,average_gc_copy:14328.470199,invariant:PASS
+gc_run_2=gc_count:461,average_gc_copy:14335.407809,invariant:PASS
+gc_lpn0_moves=5,metadata_unchanged:PASS,state:COLD
+invalid_config_cases=6,all_exit_code_1:PASS
+temporary_ssh_key_removed=PASS
+guest_poweroff=PASS
+V2_CORRECTNESS_END

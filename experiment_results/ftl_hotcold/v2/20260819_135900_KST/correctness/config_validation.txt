@@ -1,0 +1,12 @@
+V2_CONFIG_VALIDATION_BEGIN
+FEMU_HOT_REWRITE_WINDOW=0 exit_code=1 error=expected_positive_integer
+FEMU_HOT_ACCESS_THRESHOLD=0 exit_code=1 error=expected_positive_integer
+FEMU_HOT_CONFIRM_THRESHOLD=0 exit_code=1 error=expected_positive_integer
+FEMU_HOT_DECAY_WINDOW=0 exit_code=1 error=expected_positive_integer
+FEMU_HOT_ACCESS_THRESHOLD=4294967296 exit_code=1 error=maximum_4294967295
+FEMU_HOT_DECAY=maybe exit_code=1 error=expected_1_0_on_off_true_false
+launcher_pipefail=PASS
+core_dump_after_final_validation=none
+leftover_qemu_process=none
+result=PASS
+V2_CONFIG_VALIDATION_END

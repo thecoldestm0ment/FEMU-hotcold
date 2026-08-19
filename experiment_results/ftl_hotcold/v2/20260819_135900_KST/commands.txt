@@ -1,0 +1,32 @@
+FEMU V2 correctness reproducibility commands
+
+Build and launch
+----------------
+ninja -C build-femu qemu-system-x86_64
+cp hw/femu/scripts/run-blackbox.sh build-femu/run-blackbox.sh
+FEMU_EXP_LOG=1 FEMU_SECRET=V2GC FEMU_HOT_REWRITE_WINDOW=1024 FEMU_HOT_ACCESS_THRESHOLD=3 FEMU_HOT_CONFIRM_THRESHOLD=2 FEMU_HOT_DECAY_WINDOW=8 FEMU_HOT_DECAY=on ./run-blackbox.sh
+
+Guest safety and fill
+---------------------
+sudo -n /usr/sbin/blockdev --getsize64 /dev/nvme0n1
+sudo -n /usr/bin/fio --name=fill --filename=/dev/nvme0n1 --direct=1 --ioengine=libaio --rw=write --bs=1M --iodepth=32 --numjobs=1 --size=6G --group_reporting=1
+sudo -n /usr/sbin/nvme admin-passthru /dev/nvme0 --opcode=0xef --cdw10=5
+
+Marker writes use this exact command with sync between writes:
+printf V2GC | sudo -n /usr/bin/dd of=/dev/nvme0n1 bs=4 count=1 conv=notrunc status=none
+
+Decay sequence
+--------------
+sudo -n /usr/bin/fio --name=v2-seq --filename=/dev/nvme0n1 --offset=4K --size=64K --direct=1 --ioengine=libaio --rw=write --bs=4K --iodepth=1 --numjobs=1 --group_reporting=1
+
+TRIM reset
+----------
+sudo -n /usr/sbin/nvme dsm /dev/nvme0n1 --ad --slbs=0 --blocks=8
+
+GC correctness only
+-------------------
+sudo -n /usr/bin/fio --name=v2-gc --filename=/dev/nvme0n1 --offset=1G --size=4G --direct=1 --ioengine=libaio --rw=randwrite --bs=16K --iodepth=128 --numjobs=32 --time_based=1 --runtime=30 --random_distribution=zipf:0.99 --randrepeat=1 --randseed=20260819 --group_reporting=1
+
+Shutdown
+--------
+sudo -n /usr/sbin/poweroff

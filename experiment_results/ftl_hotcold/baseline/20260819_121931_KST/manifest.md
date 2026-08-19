@@ -1,4 +1,6 @@
-# No-separation baseline manifest
+# No-separation baseline manifest (superseded)
+
+> 공식 baseline은 20260819_134044_KST corrected run이다. 이 실행은 gc_count를 계측하지 않아 average GC copy를 계산할 수 없으므로 감사 추적용으로만 유지한다.
 
 - Run ID: `20260819_121931_KST`
 - Source commit: `22ecac90f15bd90894a115c5ad05baba4258be36`

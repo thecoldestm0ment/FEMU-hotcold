@@ -1,0 +1,16 @@
+V2_CLASSIFICATION_TRACE_BEGIN
+config=T:1024,A:3,C:2,D:8,decay:on
+write_pointers=hot_line:64,cold_line:0
+[CLASSIFY] lpn=0 state=COLD access=1 short=0 interval=1572864 seq=1572865 decay_epoch=196608
+[CLASSIFY] lpn=0 state=COLD access=2 short=1 interval=1 seq=1572866 decay_epoch=196608
+[CLASSIFY] lpn=0 state=HOT access=3 short=2 interval=1 seq=1572867 decay_epoch=196608
+promotion_result=PASS
+[CLASSIFY] lpn=0 state=COLD access=1 short=1 interval=16 seq=1572883 decay_epoch=196610
+decay_result=PASS
+[CLASSIFY] lpn=0 state=COLD access=2 short=2 interval=1 seq=1572884 decay_epoch=196610
+[CLASSIFY] lpn=0 state=HOT access=3 short=3 interval=1 seq=1572885 decay_epoch=196610
+reacquire_result=PASS
+[INVALIDATE:trim] lpn=0
+[CLASSIFY] lpn=0 state=COLD access=1 short=0 interval=0 seq=1572886 decay_epoch=196610
+trim_reset_result=PASS
+V2_CLASSIFICATION_TRACE_END

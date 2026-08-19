@@ -1,0 +1,22 @@
+FEMU V2 correctness summary
+run_id=20260819_135900_KST
+source_commit=ffd7c8a70
+build=PASS
+shell_syntax=PASS
+config=T:1024,A:3,C:2,D:8,decay:on
+default_config=T:1024,A:3,C:2,D:65536,decay:on
+safety_gate=PASS
+sudoers_visudo=PASS
+sudoers_owner_mode=root:root_0440
+promotion_cold_cold_hot=PASS
+lazy_decay_hot_to_cold=PASS
+decay_reacquire_cold_hot=PASS
+trim_history_reset=PASS
+gc_count_observed=PASS
+gc_history_read_only=PASS
+gc_relocations_for_lpn0=5
+counter_invariant_all_phases=PASS
+invalid_config_nonzero=PASS
+guest_poweroff=PASS
+temporary_ssh_key_removed=PASS
+performance_experiment_300s=NOT_RUN
