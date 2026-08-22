@@ -1,0 +1,48 @@
+FEMU V2.5 correctness, E sweep, and final 3-seed comparison
+run_id=20260823_030244_KST
+implementation_commit=61bab228ab614bb6cbec85246ff442989f35c42f
+config=T:1024,A:3,C:2,D:65536,decay:on
+selected_E=4096
+selected_E_ratio=4T
+
+correctness_build=PASS
+correctness_shell_syntax=PASS
+correctness_idle_age_le_e_hot=PASS
+correctness_idle_age_gt_e_cold=PASS
+correctness_gc_metadata_unchanged=PASS
+correctness_host_cold_cold_hot=PASS
+correctness_trim_first_write_cold=PASS
+correctness_positive_integer_validation=PASS
+correctness_counter_invariant=PASS
+
+sweep_seed=20260819
+sweep_E=2048 fio_runtime_ms=300484 fio_iops=8853 waf=7.461601 gc_page_writes=68763405 gc_count=4843 average_gc_copy=14198.514351 demotions=9611 demotion_pct=69.049501 invariant=PASS
+sweep_E=4096 fio_runtime_ms=300596 fio_iops=8844 waf=7.458357 gc_page_writes=68677466 gc_count=4836 average_gc_copy=14201.295699 demotions=7746 demotion_pct=53.949018 invariant=PASS
+sweep_E=8192 fio_runtime_ms=300413 fio_iops=8858 waf=7.463951 gc_page_writes=68804412 gc_count=4845 average_gc_copy=14201.117028 demotions=3683 demotion_pct=29.862969 invariant=PASS
+sweep_selection_reason=lowest_waf_then_lowest_gc_page_writes_and_gc_count
+
+final_seeds=20260819,20260820,20260821
+final_valid_runs=3
+final_fresh_device_all=PASS
+final_safety_gate_all=PASS
+final_precondition_rc_all=0
+final_marker_write_rc_all=0
+final_stats_reset_rc_all=0
+final_fio_rc_all=0
+final_stats_rc_all=0
+final_counter_invariant_all=PASS
+final_guest_poweroff_all=PASS
+
+seed=20260819 fio_runtime_ms=300596 fio_iops=8844 v2_waf=7.463094 v25_waf=7.458357 waf_delta=-0.004737 v2_gc_page_writes=67802765 v25_gc_page_writes=68677466 gc_page_writes_delta=874701 v2_gc_count=4775 v25_gc_count=4836 gc_count_delta=61 v2_average_gc_copy=14199.531937 v25_average_gc_copy=14201.295699 average_gc_copy_delta=1.763762 demotions=7746 demotion_pct=53.949018
+seed=20260820 fio_runtime_ms=300483 fio_iops=8885 v2_waf=7.463259 v25_waf=7.437430 waf_delta=-0.025829 v2_gc_page_writes=68805446 v25_gc_page_writes=68751800 gc_page_writes_delta=-53646 v2_gc_count=4845 v25_gc_count=4844 gc_count_delta=-1 v2_average_gc_copy=14201.330444 v25_average_gc_copy=14193.187448 average_gc_copy_delta=-8.142996 demotions=8859 demotion_pct=55.185947
+seed=20260821 fio_runtime_ms=300448 fio_iops=8851 v2_waf=7.459931 v25_waf=7.477359 waf_delta=0.017428 v2_gc_page_writes=68864674 v25_gc_page_writes=68905394 gc_page_writes_delta=40720 v2_gc_count=4850 v25_gc_count=4850 gc_count_delta=0 v2_average_gc_copy=14198.901856 v25_average_gc_copy=14207.297732 average_gc_copy_delta=8.395876 demotions=5772 demotion_pct=48.998302
+
+metric=waf v2_mean=7.462094667 v2_sample_sd=0.001875606 v25_mean=7.457715333 v25_sample_sd=0.019972232 paired_mean_delta=-0.004379333 paired_delta_sample_sd=0.021630718 relative_mean_change_pct=-0.058687721
+metric=gc_page_writes v2_mean=68490961.666667 v2_sample_sd=596731.076788 v25_mean=68778220.000000 v25_sample_sd=116238.141744 paired_mean_delta=287258.333333 relative_mean_change_pct=0.419410571
+metric=gc_count v2_mean=4823.333333 v2_sample_sd=41.932485 v25_mean=4843.333333 v25_sample_sd=7.023769 paired_mean_delta=20.000000 relative_mean_change_pct=0.414651002
+metric=average_gc_copy v2_mean=14199.921412 v2_sample_sd=1.260269 v25_mean=14200.593626 v25_sample_sd=7.081293 paired_mean_delta=0.672214 relative_mean_change_pct=0.004733928
+metric=gc_hot_writes v2_mean=12600.666667 v2_sample_sd=908.894567 v25_mean=6604.666667 v25_sample_sd=593.034007 paired_mean_delta=-5996.000000 relative_mean_change_pct=-47.584783874
+metric=stale_hot_gc_demotions v25_mean=7459.000000 v25_sample_sd=1563.383830
+metric=demotion_pct v25_mean=52.711089 v25_sample_sd=3.274307
+
+final_interpretation=mechanism_works_but_waf_improvement_not_consistent_across_seeds
