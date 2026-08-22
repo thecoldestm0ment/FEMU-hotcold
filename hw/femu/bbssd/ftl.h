@@ -347,6 +347,10 @@ struct ssd {
     uint64_t host_cold_writes;
     uint64_t gc_hot_writes;
     uint64_t gc_cold_writes;
+    uint64_t stale_hot_gc_candidates_gt_t;
+    uint64_t stale_hot_gc_candidates_gt_2t;
+    uint64_t stale_hot_gc_candidates_gt_4t;
+    uint64_t stale_hot_gc_candidates_gt_8t;
     uint64_t cold_to_hot_count;
     uint64_t hot_to_cold_count;
     uint64_t hot_pool_empty_count;

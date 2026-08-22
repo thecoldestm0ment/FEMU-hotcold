@@ -101,6 +101,10 @@ void ssd_reset_stats(struct ssd *ssd)
     ssd->host_cold_writes = 0;
     ssd->gc_hot_writes = 0;
     ssd->gc_cold_writes = 0;
+    ssd->stale_hot_gc_candidates_gt_t = 0;
+    ssd->stale_hot_gc_candidates_gt_2t = 0;
+    ssd->stale_hot_gc_candidates_gt_4t = 0;
+    ssd->stale_hot_gc_candidates_gt_8t = 0;
     ssd->cold_to_hot_count = 0;
     ssd->hot_to_cold_count = 0;
     ssd->hot_pool_empty_count = 0;
@@ -121,7 +125,16 @@ void ssd_print_stats(struct ssd *ssd)
     char hot_write_ratio[32];
     bool counters_valid =
         ssd->nand_page_writes ==
-        ssd->host_page_writes + ssd->gc_page_writes;
+        ssd->host_page_writes + ssd->gc_page_writes &&
+        ssd->gc_hot_writes + ssd->gc_cold_writes ==
+        ssd->gc_page_writes &&
+        ssd->stale_hot_gc_candidates_gt_8t <=
+        ssd->stale_hot_gc_candidates_gt_4t &&
+        ssd->stale_hot_gc_candidates_gt_4t <=
+        ssd->stale_hot_gc_candidates_gt_2t &&
+        ssd->stale_hot_gc_candidates_gt_2t <=
+        ssd->stale_hot_gc_candidates_gt_t &&
+        ssd->stale_hot_gc_candidates_gt_t <= ssd->gc_hot_writes;
 
     if (ssd->host_page_writes == 0) {
         snprintf(waf, sizeof(waf), "N/A");
@@ -163,6 +176,10 @@ void ssd_print_stats(struct ssd *ssd)
             " hot_write_ratio=%s"
             " gc_hot_writes=%" PRIu64
             " gc_cold_writes=%" PRIu64
+            " stale_hot_gc_candidates_gt_t=%" PRIu64
+            " stale_hot_gc_candidates_gt_2t=%" PRIu64
+            " stale_hot_gc_candidates_gt_4t=%" PRIu64
+            " stale_hot_gc_candidates_gt_8t=%" PRIu64
             " cold_to_hot_count=%" PRIu64
             " hot_to_cold_count=%" PRIu64
             " hot_pool_empty_count=%" PRIu64
@@ -178,6 +195,10 @@ void ssd_print_stats(struct ssd *ssd)
             ssd->block_erases, waf, ssd->gc_count, average_gc_copy,
             ssd->host_hot_writes, ssd->host_cold_writes, hot_write_ratio,
             ssd->gc_hot_writes, ssd->gc_cold_writes,
+            ssd->stale_hot_gc_candidates_gt_t,
+            ssd->stale_hot_gc_candidates_gt_2t,
+            ssd->stale_hot_gc_candidates_gt_4t,
+            ssd->stale_hot_gc_candidates_gt_8t,
             ssd->cold_to_hot_count, ssd->hot_to_cold_count,
             ssd->hot_pool_empty_count, ssd->cold_pool_empty_count,
             ssd->borrow_count, ssd->emergency_gc_count,
@@ -764,6 +785,53 @@ static struct write_pointer *ssd_select_write_pointer(struct ssd *ssd,
     return state == LPN_STATE_HOT ? &ssd->wp_hot : &ssd->wp_cold;
 }
 
+/* idle_age > multiplier*T를 곱셈 overflow 없이 비교한다. */
+static bool ssd_idle_age_exceeds_t_multiple(uint64_t idle_age,
+                                            uint64_t rewrite_window,
+                                            uint64_t multiplier)
+{
+    uint64_t quotient;
+    uint64_t remainder;
+
+    ftl_assert(rewrite_window > 0);
+    ftl_assert(multiplier > 0);
+
+    quotient = idle_age / multiplier;
+    remainder = idle_age % multiplier;
+    return quotient > rewrite_window ||
+           (quotient == rewrite_window && remainder != 0);
+}
+
+/* historical HOT page의 GC 시점 idle-age tail을 누적한다. */
+static void ssd_count_stale_hot_gc_candidate(struct ssd *ssd,
+                                             const LpnMeta *meta)
+{
+    uint64_t idle_age;
+
+    if (meta->state != LPN_STATE_HOT) {
+        return;
+    }
+
+    ftl_assert(meta->last_write_seq <= ssd->host_write_seq);
+    idle_age = ssd->host_write_seq - meta->last_write_seq;
+    if (ssd_idle_age_exceeds_t_multiple(idle_age,
+                                        ssd->hot_rewrite_window, 1)) {
+        ssd->stale_hot_gc_candidates_gt_t++;
+    }
+    if (ssd_idle_age_exceeds_t_multiple(idle_age,
+                                        ssd->hot_rewrite_window, 2)) {
+        ssd->stale_hot_gc_candidates_gt_2t++;
+    }
+    if (ssd_idle_age_exceeds_t_multiple(idle_age,
+                                        ssd->hot_rewrite_window, 4)) {
+        ssd->stale_hot_gc_candidates_gt_4t++;
+    }
+    if (ssd_idle_age_exceeds_t_multiple(idle_age,
+                                        ssd->hot_rewrite_window, 8)) {
+        ssd->stale_hot_gc_candidates_gt_8t++;
+    }
+}
+
 /* TRIM은 logical lifetime의 끝이므로 다음 write를 다시 첫 write로 본다. */
 static void ssd_reset_lpn_metadata(struct ssd *ssd, uint64_t lpn)
 {
@@ -1127,6 +1195,7 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
 
     ftl_assert(valid_lpn(ssd, lpn));
     /* GC는 온도 이력을 갱신하지 않고 현재 분류에 맞는 line으로 이동한다. */
+    ssd_count_stale_hot_gc_candidate(ssd, &ssd->lpn_meta[lpn]);
     wpp = ssd_select_write_pointer(ssd, lpn);
     if (ssd->lpn_meta[lpn].state == LPN_STATE_HOT) {
         ssd->gc_hot_writes++;
