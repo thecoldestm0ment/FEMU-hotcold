@@ -134,6 +134,11 @@ build-femu/
 build/
 /hw/femu/bbssd/참고자료
 
+# The generic QEMU man-page rule `*.[1-9]` also matches this directory name.
+# Re-include curated V2.5 results; the sensitive/raw rules below still win.
+!/experiment_results/ftl_hotcold/v2.5/
+!/experiment_results/ftl_hotcold/v2.5/**
+
 # FEMU experiment artifacts kept locally (applies to V1/V2/V2.5/baseline).
 # Curated CSV/Markdown summaries, fio output, and stats remain publishable.
 /experiment_results/**/host_console*.txt

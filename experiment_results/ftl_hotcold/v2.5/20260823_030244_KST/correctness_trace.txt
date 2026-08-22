@@ -1,0 +1,60 @@
+FEMU V2.5 correctness trace
+run_id=20260823_030244_KST
+implementation_commit=61bab228ab614bb6cbec85246ff442989f35c42f
+build=PASS
+shell_syntax=PASS
+git_diff_check=PASS
+
+HOST_CLASSIFIER_AND_TRIM
+[CLASSIFY] lpn=0 state=COLD access=1 short=0 interval=1572864 seq=1572865 decay_epoch=24
+[CLASSIFY] lpn=0 state=COLD access=2 short=1 interval=1 seq=1572866 decay_epoch=24
+[CLASSIFY] lpn=0 state=HOT access=3 short=2 interval=1 seq=1572867 decay_epoch=24
+[INVALIDATE:trim] lpn=0
+[CLASSIFY] lpn=0 state=COLD access=1 short=0 interval=0 seq=1572868 decay_epoch=24
+[CLASSIFY] lpn=0 state=COLD access=2 short=1 interval=1 seq=1572869 decay_epoch=24
+[CLASSIFY] lpn=0 state=HOT access=3 short=2 interval=1 seq=1572870 decay_epoch=24
+promotion_cold_cold_hot=PASS
+trim_first_write_cold=PASS
+post_trim_repromotion=PASS
+
+IDLE_AGE_GREATER_THAN_E
+E=4096
+[GC_MOVE] lpn=0 historical=HOT effective=COLD idle_age=159620 expired=yes access=3 short=2 last_seq=1572870 decay_epoch=24
+[GC_MOVE] lpn=0 historical=HOT effective=COLD idle_age=229336 expired=yes access=3 short=2 last_seq=1572870 decay_epoch=24
+[GC_MOVE] lpn=0 historical=HOT effective=COLD idle_age=303680 expired=yes access=3 short=2 last_seq=1572870 decay_epoch=24
+[GC_MOVE] lpn=0 historical=HOT effective=COLD idle_age=383356 expired=yes access=3 short=2 last_seq=1572870 decay_epoch=24
+[GC_MOVE] lpn=0 historical=HOT effective=COLD idle_age=526104 expired=yes access=3 short=2 last_seq=1572870 decay_epoch=24
+[GC_MOVE] lpn=0 historical=HOT effective=COLD idle_age=631024 expired=yes access=3 short=2 last_seq=1572870 decay_epoch=24
+[GC_MOVE] lpn=0 historical=HOT effective=COLD idle_age=711928 expired=yes access=3 short=2 last_seq=1572870 decay_epoch=24
+[GC_MOVE] lpn=0 historical=HOT effective=COLD idle_age=850408 expired=yes access=3 short=2 last_seq=1572870 decay_epoch=24
+idle_age_gt_e_effective_cold=PASS
+stale_hot_gc_demotions=1467
+metadata_identical_across_8_moves=PASS
+counter_invariant=PASS
+
+IDLE_AGE_LESS_THAN_OR_EQUAL_TO_E
+E=4000000
+[CLASSIFY] lpn=0 state=COLD access=1 short=0 interval=1003553 seq=2576422 decay_epoch=39
+[CLASSIFY] lpn=0 state=COLD access=2 short=1 interval=1 seq=2576423 decay_epoch=39
+[CLASSIFY] lpn=0 state=HOT access=3 short=2 interval=1 seq=2576424 decay_epoch=39
+[GC_MOVE] lpn=0 historical=HOT effective=HOT idle_age=40956 expired=no access=3 short=2 last_seq=2576424 decay_epoch=39
+[GC_MOVE] lpn=0 historical=HOT effective=HOT idle_age=202920 expired=no access=3 short=2 last_seq=2576424 decay_epoch=39
+[GC_MOVE] lpn=0 historical=HOT effective=HOT idle_age=372292 expired=no access=3 short=2 last_seq=2576424 decay_epoch=39
+[GC_MOVE] lpn=0 historical=HOT effective=HOT idle_age=530312 expired=no access=3 short=2 last_seq=2576424 decay_epoch=39
+[GC_MOVE] lpn=0 historical=HOT effective=HOT idle_age=705800 expired=no access=3 short=2 last_seq=2576424 decay_epoch=39
+[GC_MOVE] lpn=0 historical=HOT effective=HOT idle_age=888012 expired=no access=3 short=2 last_seq=2576424 decay_epoch=39
+idle_age_le_e_effective_hot=PASS
+metadata_identical_across_6_moves=PASS
+counter_invariant=PASS
+
+INVARIANTS
+nand_page_writes_equals_host_plus_gc=PASS
+gc_hot_writes_plus_gc_cold_writes_equals_gc_page_writes=PASS
+gc_does_not_update_classifier_metadata=PASS
+
+CONFIG_VALIDATION
+FEMU_HOT_IDLE_EXPIRATION_WINDOW=0 exit_code=1 result=PASS
+FEMU_HOT_IDLE_EXPIRATION_WINDOW=abc exit_code=1 result=PASS
+
+NOTE
+The first E=4000000 sub-run did not synchronize three identical marker writes, so the Guest merged one write and LPN 0 remained COLD. That sub-run is excluded. The recorded <=E trace is from the corrected sequence with sync between marker writes.
