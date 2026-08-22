@@ -1,39 +1,32 @@
-FEMU V2 official seed-1 result
+FEMU V2 final 3-seed result
 run_id=20260823_024656_KST
 source_commit=c7ac5c55a3343bc5f5f4a63532e7848103122dc6
-seed=20260819
 config=T:1024,A:3,C:2,D:65536,decay:on
-fresh_device=PASS
-safety_gate=PASS
-precondition_rc=0
-marker_write_1_rc=0
-marker_write_2_rc=0
-stats_reset_rc=0
-fio_rc=0
-fio_runtime_ms=300420
-fio_iops=8730
-fio_bw_mib_s=136
-fio_io_gib=40.0
-stats_rc=0
-counter_invariant=PASS
-guest_poweroff=PASS
-host_page_writes=10490760
-nand_page_writes=78293525
-gc_page_writes=67802765
-waf=7.463094
-gc_count=4775
-average_gc_copy=14199.531937
-gc_hot_writes=11944
-gc_cold_writes=67790821
-stale_hot_gc_candidates_gt_t=9454
-stale_hot_gc_candidates_gt_2t=7792
-stale_hot_gc_candidates_gt_4t=5596
-stale_hot_gc_candidates_gt_8t=3216
-candidate_gt_t_per_gc_hot_pct=79.152713
-candidate_gt_2t_per_gc_hot_pct=65.237776
-candidate_gt_4t_per_gc_hot_pct=46.851976
-candidate_gt_8t_per_gc_hot_pct=26.925653
-candidate_gt_t_per_all_gc_pct=0.013943384
-candidate_gt_2t_per_all_gc_pct=0.011492157
-candidate_gt_4t_per_all_gc_pct=0.008253351
-candidate_gt_8t_per_all_gc_pct=0.004743169
+seeds=20260819,20260820,20260821
+valid_runs=3
+fresh_device_all=PASS
+safety_gate_all=PASS
+precondition_rc_all=0
+marker_write_rc_all=0
+stats_reset_rc_all=0
+fio_rc_all=0
+stats_rc_all=0
+counter_invariant_all=PASS
+guest_poweroff_all=PASS
+
+seed=20260819 fio_runtime_ms=300420 fio_iops=8730 fio_bw_mib_s=136 waf=7.463094 gc_page_writes=67802765 gc_count=4775 average_gc_copy=14199.531937 gc_hot_writes=11944 candidate_gt_t_pct=79.152713 candidate_gt_2t_pct=65.237776 candidate_gt_4t_pct=46.851976 candidate_gt_8t_pct=26.925653
+seed=20260820 fio_runtime_ms=300691 fio_iops=8850 fio_bw_mib_s=138 waf=7.463259 gc_page_writes=68805446 gc_count=4845 average_gc_copy=14201.330444 gc_hot_writes=12220 candidate_gt_t_pct=79.926350 candidate_gt_2t_pct=66.988543 candidate_gt_4t_pct=47.667758 candidate_gt_8t_pct=26.546645
+seed=20260821 fio_runtime_ms=300575 fio_iops=8866 fio_bw_mib_s=139 waf=7.459931 gc_page_writes=68864674 gc_count=4850 average_gc_copy=14198.901856 gc_hot_writes=13638 candidate_gt_t_pct=81.001613 candidate_gt_2t_pct=67.421909 candidate_gt_4t_pct=50.549934 candidate_gt_8t_pct=31.705529
+
+metric=host_page_writes mean=10598889.333333 sample_sd=93928.881721
+metric=nand_page_writes mean=79089851.000000 sample_sd=690627.169540
+metric=gc_page_writes mean=68490961.666667 sample_sd=596731.076788
+metric=waf mean=7.462094667 sample_sd=0.001875606
+metric=gc_count mean=4823.333333 sample_sd=41.932485
+metric=average_gc_copy mean=14199.921412 sample_sd=1.260269
+metric=gc_hot_writes mean=12600.666667 sample_sd=908.894567
+metric=gc_cold_writes mean=68478361.000000 sample_sd=596128.289653
+metric=stale_hot_gc_candidates_gt_t mean=10089.333333 sample_sd=844.000197
+metric=stale_hot_gc_candidates_gt_2t mean=8391.000000 sample_sd=723.616611
+metric=stale_hot_gc_candidates_gt_4t mean=6105.000000 sample_sd=692.821045
+metric=stale_hot_gc_candidates_gt_8t mean=3594.666667 sample_sd=631.776332
