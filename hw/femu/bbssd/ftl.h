@@ -351,6 +351,7 @@ struct ssd {
     uint64_t stale_hot_gc_candidates_gt_2t;
     uint64_t stale_hot_gc_candidates_gt_4t;
     uint64_t stale_hot_gc_candidates_gt_8t;
+    uint64_t stale_hot_gc_demotions;
     uint64_t cold_to_hot_count;
     uint64_t hot_to_cold_count;
     uint64_t hot_pool_empty_count;
@@ -364,6 +365,7 @@ struct ssd {
     uint64_t host_write_seq;
     uint64_t hot_rewrite_window;
     uint64_t hot_decay_window;
+    uint64_t hot_idle_expiration_window;
     uint32_t hot_access_threshold;
     uint32_t hot_confirmation_threshold;
     bool hot_decay_enabled;

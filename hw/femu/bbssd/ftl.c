@@ -6,6 +6,7 @@
 #define HOT_ACCESS_THRESHOLD_DEFAULT 3U
 #define HOT_CONFIRMATION_THRESHOLD_DEFAULT 2U
 #define HOT_DECAY_WINDOW_DEFAULT 65536ULL
+#define HOT_IDLE_EXPIRATION_MULTIPLIER_DEFAULT 4ULL
 
 /*
  * 기본 bbssd(non-FDP) FTL 읽기 순서
@@ -68,6 +69,27 @@ static uint32_t ssd_load_positive_u32(const char *name, uint32_t default_value)
     return (uint32_t)parsed;
 }
 
+static uint64_t ssd_load_idle_expiration_window(uint64_t rewrite_window)
+{
+    const char *name = "FEMU_HOT_IDLE_EXPIRATION_WINDOW";
+    const char *value = getenv(name);
+    uint64_t default_value;
+
+    if (!value || value[0] == '\0') {
+        if (rewrite_window >
+            UINT64_MAX / HOT_IDLE_EXPIRATION_MULTIPLIER_DEFAULT) {
+            ftl_err("invalid default %s for rewrite window=%" PRIu64 "\n",
+                    name, rewrite_window);
+            exit(EXIT_FAILURE);
+        }
+        default_value =
+            rewrite_window * HOT_IDLE_EXPIRATION_MULTIPLIER_DEFAULT;
+        return default_value;
+    }
+
+    return ssd_load_positive_u64(name, 1);
+}
+
 static bool ssd_load_bool(const char *name, bool default_value)
 {
     const char *value = getenv(name);
@@ -105,6 +127,7 @@ void ssd_reset_stats(struct ssd *ssd)
     ssd->stale_hot_gc_candidates_gt_2t = 0;
     ssd->stale_hot_gc_candidates_gt_4t = 0;
     ssd->stale_hot_gc_candidates_gt_8t = 0;
+    ssd->stale_hot_gc_demotions = 0;
     ssd->cold_to_hot_count = 0;
     ssd->hot_to_cold_count = 0;
     ssd->hot_pool_empty_count = 0;
@@ -134,7 +157,9 @@ void ssd_print_stats(struct ssd *ssd)
         ssd->stale_hot_gc_candidates_gt_2t &&
         ssd->stale_hot_gc_candidates_gt_2t <=
         ssd->stale_hot_gc_candidates_gt_t &&
-        ssd->stale_hot_gc_candidates_gt_t <= ssd->gc_hot_writes;
+        ssd->stale_hot_gc_candidates_gt_t <=
+        ssd->gc_hot_writes + ssd->stale_hot_gc_demotions &&
+        ssd->stale_hot_gc_demotions <= ssd->gc_cold_writes;
 
     if (ssd->host_page_writes == 0) {
         snprintf(waf, sizeof(waf), "N/A");
@@ -159,11 +184,12 @@ void ssd_print_stats(struct ssd *ssd)
                  (double)ssd->host_page_writes);
     }
 
-    ftl_log("BBSSD-STATS version=V2 hot_rewrite_window=%" PRIu64
+    ftl_log("BBSSD-STATS version=V2.5 hot_rewrite_window=%" PRIu64
             " hot_access_threshold=%u"
             " hot_confirmation_threshold=%u"
             " hot_decay_window=%" PRIu64
             " hot_decay_enabled=%s"
+            " hot_idle_expiration_window=%" PRIu64
             " host_page_writes=%" PRIu64
             " nand_page_writes=%" PRIu64
             " gc_page_writes=%" PRIu64
@@ -180,6 +206,7 @@ void ssd_print_stats(struct ssd *ssd)
             " stale_hot_gc_candidates_gt_2t=%" PRIu64
             " stale_hot_gc_candidates_gt_4t=%" PRIu64
             " stale_hot_gc_candidates_gt_8t=%" PRIu64
+            " stale_hot_gc_demotions=%" PRIu64
             " cold_to_hot_count=%" PRIu64
             " hot_to_cold_count=%" PRIu64
             " hot_pool_empty_count=%" PRIu64
@@ -190,7 +217,8 @@ void ssd_print_stats(struct ssd *ssd)
             " counter_invariant=%s\n",
             ssd->hot_rewrite_window, ssd->hot_access_threshold,
             ssd->hot_confirmation_threshold, ssd->hot_decay_window,
-            ssd->hot_decay_enabled ? "on" : "off", ssd->host_page_writes,
+            ssd->hot_decay_enabled ? "on" : "off",
+            ssd->hot_idle_expiration_window, ssd->host_page_writes,
             ssd->nand_page_writes, ssd->gc_page_writes,
             ssd->block_erases, waf, ssd->gc_count, average_gc_copy,
             ssd->host_hot_writes, ssd->host_cold_writes, hot_write_ratio,
@@ -199,6 +227,7 @@ void ssd_print_stats(struct ssd *ssd)
             ssd->stale_hot_gc_candidates_gt_2t,
             ssd->stale_hot_gc_candidates_gt_4t,
             ssd->stale_hot_gc_candidates_gt_8t,
+            ssd->stale_hot_gc_demotions,
             ssd->cold_to_hot_count, ssd->hot_to_cold_count,
             ssd->hot_pool_empty_count, ssd->cold_pool_empty_count,
             ssd->borrow_count, ssd->emergency_gc_count,
@@ -651,6 +680,9 @@ static void ssd_init_lpn_metadata(struct ssd *ssd)
     ssd->hot_access_threshold = HOT_ACCESS_THRESHOLD_DEFAULT;
     ssd->hot_confirmation_threshold = HOT_CONFIRMATION_THRESHOLD_DEFAULT;
     ssd->hot_decay_window = HOT_DECAY_WINDOW_DEFAULT;
+    ssd->hot_idle_expiration_window =
+        HOT_REWRITE_WINDOW_DEFAULT *
+        HOT_IDLE_EXPIRATION_MULTIPLIER_DEFAULT;
     ssd->hot_decay_enabled = true;
 
     if (ssd->fdp_enabled) {
@@ -672,14 +704,18 @@ static void ssd_init_lpn_metadata(struct ssd *ssd)
         ssd_load_positive_u64("FEMU_HOT_DECAY_WINDOW",
                               HOT_DECAY_WINDOW_DEFAULT);
     ssd->hot_decay_enabled = ssd_load_bool("FEMU_HOT_DECAY", true);
+    ssd->hot_idle_expiration_window =
+        ssd_load_idle_expiration_window(ssd->hot_rewrite_window);
 
     metadata_bytes = (uint64_t)spp->tt_pgs * sizeof(*ssd->lpn_meta);
     ftl_log("LPN metadata: entries=%d entry_size=%zu total=%" PRIu64
-            " MiB T=%" PRIu64 " A=%u C=%u D=%" PRIu64 " decay=%s\n",
+            " MiB T=%" PRIu64 " A=%u C=%u D=%" PRIu64
+            " decay=%s E=%" PRIu64 "\n",
             spp->tt_pgs, sizeof(*ssd->lpn_meta), metadata_bytes / MiB,
             ssd->hot_rewrite_window, ssd->hot_access_threshold,
             ssd->hot_confirmation_threshold, ssd->hot_decay_window,
-            ssd->hot_decay_enabled ? "on" : "off");
+            ssd->hot_decay_enabled ? "on" : "off",
+            ssd->hot_idle_expiration_window);
 }
 
 /*
@@ -771,21 +807,35 @@ static void ssd_update_lpn_temperature(struct ssd *ssd, uint64_t lpn)
     meta->last_write_seq = ssd->host_write_seq;
 }
 
-/* LPN의 현재 온도에 맞는 non-FDP write pointer를 선택한다. */
-static struct write_pointer *ssd_select_write_pointer(struct ssd *ssd,
-                                                      uint64_t lpn)
+static struct write_pointer *ssd_write_pointer_for_state(struct ssd *ssd,
+                                                         LpnState state)
 {
-    LpnState state;
-
-    ftl_assert(ssd->lpn_meta != NULL);
-    ftl_assert(valid_lpn(ssd, lpn));
-    state = ssd->lpn_meta[lpn].state;
-
     ftl_assert(state == LPN_STATE_COLD || state == LPN_STATE_HOT);
     return state == LPN_STATE_HOT ? &ssd->wp_hot : &ssd->wp_cold;
 }
 
-/* idle_age > multiplier*T를 곱셈 overflow 없이 비교한다. */
+/* LPN의 현재 온도에 맞는 non-FDP write pointer를 선택한다. */
+static struct write_pointer *ssd_select_write_pointer(struct ssd *ssd,
+                                                      uint64_t lpn)
+{
+    ftl_assert(ssd->lpn_meta != NULL);
+    ftl_assert(valid_lpn(ssd, lpn));
+    return ssd_write_pointer_for_state(ssd, ssd->lpn_meta[lpn].state);
+}
+
+/* V2.5 expiration은 GC placement만 바꾸고 historical state는 유지한다. */
+static LpnState ssd_gc_effective_state(struct ssd *ssd,
+                                       LpnState historical_state,
+                                       uint64_t idle_age)
+{
+    if (historical_state == LPN_STATE_HOT &&
+        idle_age <= ssd->hot_idle_expiration_window) {
+        return LPN_STATE_HOT;
+    }
+    return LPN_STATE_COLD;
+}
+
+/* idle_age가 multiplier*T를 초과했는지 비교한다. */
 static bool ssd_idle_age_exceeds_t_multiple(uint64_t idle_age,
                                             uint64_t rewrite_window,
                                             uint64_t multiplier)
@@ -804,16 +854,8 @@ static bool ssd_idle_age_exceeds_t_multiple(uint64_t idle_age,
 
 /* historical HOT page의 GC 시점 idle-age tail을 누적한다. */
 static void ssd_count_stale_hot_gc_candidate(struct ssd *ssd,
-                                             const LpnMeta *meta)
+                                             uint64_t idle_age)
 {
-    uint64_t idle_age;
-
-    if (meta->state != LPN_STATE_HOT) {
-        return;
-    }
-
-    ftl_assert(meta->last_write_seq <= ssd->host_write_seq);
-    idle_age = ssd->host_write_seq - meta->last_write_seq;
     if (ssd_idle_age_exceeds_t_multiple(idle_age,
                                         ssd->hot_rewrite_window, 1)) {
         ssd->stale_hot_gc_candidates_gt_t++;
@@ -1192,12 +1234,35 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
     struct write_pointer *wpp;
     struct nand_lun *new_lun;
     uint64_t lpn = get_rmap_ent(ssd, old_ppa);
+    LpnMeta *meta;
+    LpnState historical_state;
+    LpnState effective_state;
+    uint64_t idle_age = 0;
+    bool expired = false;
 
     ftl_assert(valid_lpn(ssd, lpn));
-    /* GC는 온도 이력을 갱신하지 않고 현재 분류에 맞는 line으로 이동한다. */
-    ssd_count_stale_hot_gc_candidate(ssd, &ssd->lpn_meta[lpn]);
-    wpp = ssd_select_write_pointer(ssd, lpn);
-    if (ssd->lpn_meta[lpn].state == LPN_STATE_HOT) {
+    meta = &ssd->lpn_meta[lpn];
+    historical_state = meta->state;
+    ftl_assert(historical_state == LPN_STATE_COLD ||
+               historical_state == LPN_STATE_HOT);
+
+    if (historical_state == LPN_STATE_HOT) {
+        ftl_assert(meta->last_write_seq <= ssd->host_write_seq);
+        idle_age = ssd->host_write_seq - meta->last_write_seq;
+        ssd_count_stale_hot_gc_candidate(ssd, idle_age);
+    }
+
+    effective_state =
+        ssd_gc_effective_state(ssd, historical_state, idle_age);
+    if (historical_state == LPN_STATE_HOT &&
+        effective_state == LPN_STATE_COLD) {
+        expired = true;
+        ssd->stale_hot_gc_demotions++;
+    }
+
+    /* GC는 classifier history를 변경하지 않고 effective state만 배치에 쓴다. */
+    wpp = ssd_write_pointer_for_state(ssd, effective_state);
+    if (effective_state == LPN_STATE_HOT) {
         ssd->gc_hot_writes++;
     } else {
         ssd->gc_cold_writes++;
@@ -1209,15 +1274,16 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
     set_rmap_ent(ssd, lpn, &new_ppa);
     if (exp_lpn_watched(lpn)) {
         exp_watch_blk[new_ppa.g.blk] = 1; /* 이동한 새 block도 추적 */
-        EXP_LOG("[GC_MOVE] lpn=%lu state=%s access=%u short=%u "
+        EXP_LOG("[GC_MOVE] lpn=%lu historical=%s effective=%s "
+                "idle_age=%" PRIu64 " expired=%s access=%u short=%u "
                 "last_seq=%" PRIu64 " decay_epoch=%" PRIu64 " "
                 PPA_FMT " -> " PPA_FMT "\n",
                 lpn,
-                ssd->lpn_meta[lpn].state == LPN_STATE_HOT ? "HOT" : "COLD",
-                ssd->lpn_meta[lpn].access_count,
-                ssd->lpn_meta[lpn].short_interval_count,
-                ssd->lpn_meta[lpn].last_write_seq,
-                ssd->lpn_meta[lpn].last_decay_epoch,
+                historical_state == LPN_STATE_HOT ? "HOT" : "COLD",
+                effective_state == LPN_STATE_HOT ? "HOT" : "COLD",
+                idle_age, expired ? "yes" : "no", meta->access_count,
+                meta->short_interval_count, meta->last_write_seq,
+                meta->last_decay_epoch,
                 PPA_ARG(old_ppa), PPA_ARG(&new_ppa));
     }
 
