@@ -56,6 +56,7 @@ typedef struct LpnMeta {
     uint64_t last_write_seq; /* 마지막 host page-write sequence */
     uint64_t update_interval; /* 직전 write와 현재 write의 sequence 차이 */
     uint32_t write_count; /* 이 LPN에서 관찰한 host write 수 */
+    uint32_t erase_survival_count; /* 현재 version이 살아남은 block erase 수 */
     LpnState state; /* 현재 UNSEEN/COLD/HOT 분류 */
 } LpnMeta;
 
@@ -343,6 +344,15 @@ struct ssd {
     uint64_t gc_count;
     uint64_t host_hot_writes;
     uint64_t host_cold_writes;
+    uint64_t host_cold_first_writes;
+    uint64_t host_hot_fast_writes;
+    uint64_t host_hot_boundary_writes;
+    uint64_t host_cold_survival_writes;
+    uint64_t host_cold_slow_writes;
+    uint64_t boundary_survival_zero;
+    uint64_t boundary_survival_one;
+    uint64_t boundary_survival_two;
+    uint64_t boundary_survival_three_plus;
     uint64_t gc_hot_writes;
     uint64_t gc_cold_writes;
     uint64_t cold_to_hot_count;
@@ -352,10 +362,12 @@ struct ssd {
     uint64_t borrow_count;
     uint64_t emergency_gc_count;
 
-    /* non-FDP Phase 2: LPN별 host-write 이력과 현재 분류 */
+    /* non-FDP V3: LPN별 host-write 이력과 erase-survival feedback */
     LpnMeta *lpn_meta;
     uint64_t host_write_seq;
     uint64_t hot_rewrite_window;
+    uint64_t hot_boundary_window;
+    uint32_t erase_survival_threshold;
 
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring **to_ftl;

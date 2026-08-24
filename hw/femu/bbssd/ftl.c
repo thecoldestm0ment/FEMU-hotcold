@@ -3,6 +3,8 @@
 
 //#define FEMU_DEBUG_FTL
 #define HOT_REWRITE_WINDOW_DEFAULT 1024ULL
+#define HOT_BOUNDARY_WINDOW_DEFAULT 4096ULL
+#define ERASE_SURVIVAL_THRESHOLD_DEFAULT 1U
 
 /*
  * 기본 bbssd(non-FDP) FTL 읽기 순서
@@ -30,25 +32,42 @@ static void ssd_trim_fdp_style(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
 static void ssd_reset_maptbl(struct ssd *ssd);
 static void exp_load_cfg(void);
 
-/* V1 threshold sweep: unset means the documented 1024-page default. */
-static uint64_t ssd_load_hot_rewrite_window(void)
+/* V3 runtime parameters: unset variables use the documented defaults. */
+static uint64_t ssd_load_positive_u64(const char *name,
+                                      uint64_t default_value)
 {
-    const char *value = getenv("FEMU_HOT_REWRITE_WINDOW");
+    const char *value = getenv(name);
     char *end = NULL;
     unsigned long long parsed;
 
     if (!value || value[0] == '\0') {
-        return HOT_REWRITE_WINDOW_DEFAULT;
+        return default_value;
     }
 
     errno = 0;
-    parsed = strtoull(value, &end, 0);
-    if (errno != 0 || end == value || *end != '\0' || parsed == 0) {
-        ftl_err("invalid FEMU_HOT_REWRITE_WINDOW='%s'\n", value);
-        abort();
+    parsed = strtoull(value, &end, 10);
+    if (value[0] < '0' || value[0] > '9' || errno != 0 || end == value ||
+        *end != '\0' || parsed == 0) {
+        ftl_err("invalid %s='%s' (expected positive integer)\n", name,
+                value);
+        exit(EXIT_FAILURE);
     }
 
     return (uint64_t)parsed;
+}
+
+static uint32_t ssd_load_positive_u32(const char *name,
+                                      uint32_t default_value)
+{
+    uint64_t parsed = ssd_load_positive_u64(name, default_value);
+
+    if (parsed > UINT32_MAX) {
+        ftl_err("invalid %s='%" PRIu64 "' (maximum %u)\n", name, parsed,
+                UINT32_MAX);
+        exit(EXIT_FAILURE);
+    }
+
+    return (uint32_t)parsed;
 }
 
 /* Reset measurement counters only. LPN history intentionally survives. */
@@ -61,6 +80,15 @@ void ssd_reset_stats(struct ssd *ssd)
     ssd->gc_count = 0;
     ssd->host_hot_writes = 0;
     ssd->host_cold_writes = 0;
+    ssd->host_cold_first_writes = 0;
+    ssd->host_hot_fast_writes = 0;
+    ssd->host_hot_boundary_writes = 0;
+    ssd->host_cold_survival_writes = 0;
+    ssd->host_cold_slow_writes = 0;
+    ssd->boundary_survival_zero = 0;
+    ssd->boundary_survival_one = 0;
+    ssd->boundary_survival_two = 0;
+    ssd->boundary_survival_three_plus = 0;
     ssd->gc_hot_writes = 0;
     ssd->gc_cold_writes = 0;
     ssd->cold_to_hot_count = 0;
@@ -82,7 +110,21 @@ void ssd_print_stats(struct ssd *ssd)
     char hot_write_ratio[32];
     bool counters_valid =
         ssd->nand_page_writes ==
-        ssd->host_page_writes + ssd->gc_page_writes;
+        ssd->host_page_writes + ssd->gc_page_writes &&
+        ssd->host_hot_writes + ssd->host_cold_writes ==
+        ssd->host_page_writes &&
+        ssd->gc_hot_writes + ssd->gc_cold_writes ==
+        ssd->gc_page_writes &&
+        ssd->host_hot_writes ==
+        ssd->host_hot_fast_writes + ssd->host_hot_boundary_writes &&
+        ssd->host_cold_writes ==
+        ssd->host_cold_first_writes + ssd->host_cold_survival_writes +
+        ssd->host_cold_slow_writes &&
+        ssd->boundary_survival_zero + ssd->boundary_survival_one +
+        ssd->boundary_survival_two +
+        ssd->boundary_survival_three_plus ==
+        ssd->host_hot_boundary_writes +
+        ssd->host_cold_survival_writes;
 
     if (ssd->host_page_writes == 0) {
         snprintf(waf, sizeof(waf), "N/A");
@@ -107,7 +149,9 @@ void ssd_print_stats(struct ssd *ssd)
                  (double)ssd->host_page_writes);
     }
 
-    ftl_log("BBSSD-STATS version=V1 hot_rewrite_window=%" PRIu64
+    ftl_log("BBSSD-STATS version=V3 hot_rewrite_window=%" PRIu64
+            " hot_boundary_window=%" PRIu64
+            " erase_survival_threshold=%u"
             " host_page_writes=%" PRIu64
             " nand_page_writes=%" PRIu64
             " gc_page_writes=%" PRIu64
@@ -118,6 +162,15 @@ void ssd_print_stats(struct ssd *ssd)
             " host_hot_writes=%" PRIu64
             " host_cold_writes=%" PRIu64
             " hot_write_ratio=%s"
+            " host_cold_first_writes=%" PRIu64
+            " host_hot_fast_writes=%" PRIu64
+            " host_hot_boundary_writes=%" PRIu64
+            " host_cold_survival_writes=%" PRIu64
+            " host_cold_slow_writes=%" PRIu64
+            " boundary_survival_zero=%" PRIu64
+            " boundary_survival_one=%" PRIu64
+            " boundary_survival_two=%" PRIu64
+            " boundary_survival_three_plus=%" PRIu64
             " gc_hot_writes=%" PRIu64
             " gc_cold_writes=%" PRIu64
             " cold_to_hot_count=%" PRIu64
@@ -127,10 +180,17 @@ void ssd_print_stats(struct ssd *ssd)
             " borrow_count=%" PRIu64
             " emergency_gc_count=%" PRIu64
             " counter_invariant=%s\n",
-            ssd->hot_rewrite_window, ssd->host_page_writes,
+            ssd->hot_rewrite_window, ssd->hot_boundary_window,
+            ssd->erase_survival_threshold, ssd->host_page_writes,
             ssd->nand_page_writes, ssd->gc_page_writes,
             ssd->block_erases, waf, ssd->gc_count, average_gc_copy,
             ssd->host_hot_writes, ssd->host_cold_writes, hot_write_ratio,
+            ssd->host_cold_first_writes, ssd->host_hot_fast_writes,
+            ssd->host_hot_boundary_writes,
+            ssd->host_cold_survival_writes,
+            ssd->host_cold_slow_writes, ssd->boundary_survival_zero,
+            ssd->boundary_survival_one, ssd->boundary_survival_two,
+            ssd->boundary_survival_three_plus,
             ssd->gc_hot_writes, ssd->gc_cold_writes,
             ssd->cold_to_hot_count, ssd->hot_to_cold_count,
             ssd->hot_pool_empty_count, ssd->cold_pool_empty_count,
@@ -579,7 +639,9 @@ static void ssd_init_lpn_metadata(struct ssd *ssd)
 
     ssd->lpn_meta = NULL;
     ssd->host_write_seq = 0;
-    ssd->hot_rewrite_window = 0;
+    ssd->hot_rewrite_window = HOT_REWRITE_WINDOW_DEFAULT;
+    ssd->hot_boundary_window = HOT_BOUNDARY_WINDOW_DEFAULT;
+    ssd->erase_survival_threshold = ERASE_SURVIVAL_THRESHOLD_DEFAULT;
 
     if (ssd->fdp_enabled) {
         return;
@@ -587,25 +649,84 @@ static void ssd_init_lpn_metadata(struct ssd *ssd)
 
     /* UNSEEN을 0으로 정의했으므로 zero allocation이 모든 초기값을 만든다. */
     ssd->lpn_meta = g_new0(LpnMeta, spp->tt_pgs);
-    ssd->hot_rewrite_window = ssd_load_hot_rewrite_window();
+    ssd->hot_rewrite_window =
+        ssd_load_positive_u64("FEMU_HOT_REWRITE_WINDOW",
+                              HOT_REWRITE_WINDOW_DEFAULT);
+    ssd->hot_boundary_window =
+        ssd_load_positive_u64("FEMU_HOT_BOUNDARY_WINDOW",
+                              HOT_BOUNDARY_WINDOW_DEFAULT);
+    ssd->erase_survival_threshold =
+        ssd_load_positive_u32("FEMU_ERASE_SURVIVAL_THRESHOLD",
+                              ERASE_SURVIVAL_THRESHOLD_DEFAULT);
+
+    if (ssd->hot_boundary_window <= ssd->hot_rewrite_window) {
+        ftl_err("FEMU_HOT_BOUNDARY_WINDOW (%" PRIu64
+                ") must be greater than FEMU_HOT_REWRITE_WINDOW (%" PRIu64
+                ")\n",
+                ssd->hot_boundary_window, ssd->hot_rewrite_window);
+        exit(EXIT_FAILURE);
+    }
 
     metadata_bytes = (uint64_t)spp->tt_pgs * sizeof(*ssd->lpn_meta);
     ftl_log("LPN metadata: entries=%d entry_size=%zu total=%" PRIu64
-            " MiB hot_window=%" PRIu64 "\n",
+            " MiB T_fast=%" PRIu64 " T_slow=%" PRIu64 " R=%u\n",
             spp->tt_pgs, sizeof(*ssd->lpn_meta), metadata_bytes / MiB,
-            ssd->hot_rewrite_window);
+            ssd->hot_rewrite_window, ssd->hot_boundary_window,
+            ssd->erase_survival_threshold);
 }
 
-/* 한 번의 host page write를 관찰해 해당 LPN의 온도만 갱신한다. */
-static void ssd_update_lpn_temperature(struct ssd *ssd, uint64_t lpn)
+typedef enum ClassificationReason {
+    CLASS_REASON_FIRST_WRITE = 0,
+    CLASS_REASON_FAST_REWRITE,
+    CLASS_REASON_BOUNDARY_HOT,
+    CLASS_REASON_ERASE_SURVIVAL_COLD,
+    CLASS_REASON_SLOW_REWRITE,
+} ClassificationReason;
+
+static const char *ssd_classification_reason_name(ClassificationReason reason)
+{
+    switch (reason) {
+    case CLASS_REASON_FIRST_WRITE:
+        return "FIRST_WRITE";
+    case CLASS_REASON_FAST_REWRITE:
+        return "FAST_REWRITE";
+    case CLASS_REASON_BOUNDARY_HOT:
+        return "BOUNDARY_HOT";
+    case CLASS_REASON_ERASE_SURVIVAL_COLD:
+        return "ERASE_SURVIVAL_COLD";
+    case CLASS_REASON_SLOW_REWRITE:
+        return "SLOW_REWRITE";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+static void ssd_count_boundary_survival(struct ssd *ssd, uint32_t count)
+{
+    if (count == 0) {
+        ssd->boundary_survival_zero++;
+    } else if (count == 1) {
+        ssd->boundary_survival_one++;
+    } else if (count == 2) {
+        ssd->boundary_survival_two++;
+    } else {
+        ssd->boundary_survival_three_plus++;
+    }
+}
+
+/* Host rewrite interval을 주 신호로, erase survival을 경계 보정에만 쓴다. */
+static ClassificationReason ssd_classify_lpn_write(
+    struct ssd *ssd, uint64_t lpn, uint32_t *survival_before)
 {
     LpnMeta *meta;
     LpnState previous_state;
+    ClassificationReason reason;
 
     ftl_assert(ssd->lpn_meta != NULL);
     ftl_assert(valid_lpn(ssd, lpn));
     meta = &ssd->lpn_meta[lpn];
     previous_state = meta->state;
+    *survival_before = meta->erase_survival_count;
 
     /* 0은 미관찰용으로 비우고, wrap 대신 64-bit 최댓값에서 포화시킨다. */
     if (ssd->host_write_seq != UINT64_MAX) {
@@ -615,12 +736,31 @@ static void ssd_update_lpn_temperature(struct ssd *ssd, uint64_t lpn)
     if (meta->write_count == 0) {
         meta->update_interval = 0;
         meta->state = LPN_STATE_COLD;
+        reason = CLASS_REASON_FIRST_WRITE;
+        ssd->host_cold_first_writes++;
     } else {
         ftl_assert(meta->last_write_seq <= ssd->host_write_seq);
         meta->update_interval = ssd->host_write_seq - meta->last_write_seq;
-        /* 전체 배열을 순회하지 않고 다음 host write에서 늦게 Cold로 내린다. */
-        meta->state = meta->update_interval <= ssd->hot_rewrite_window ?
-                      LPN_STATE_HOT : LPN_STATE_COLD;
+        if (meta->update_interval <= ssd->hot_rewrite_window) {
+            meta->state = LPN_STATE_HOT;
+            reason = CLASS_REASON_FAST_REWRITE;
+            ssd->host_hot_fast_writes++;
+        } else if (meta->update_interval > ssd->hot_boundary_window) {
+            meta->state = LPN_STATE_COLD;
+            reason = CLASS_REASON_SLOW_REWRITE;
+            ssd->host_cold_slow_writes++;
+        } else {
+            ssd_count_boundary_survival(ssd, *survival_before);
+            if (*survival_before >= ssd->erase_survival_threshold) {
+                meta->state = LPN_STATE_COLD;
+                reason = CLASS_REASON_ERASE_SURVIVAL_COLD;
+                ssd->host_cold_survival_writes++;
+            } else {
+                meta->state = LPN_STATE_HOT;
+                reason = CLASS_REASON_BOUNDARY_HOT;
+                ssd->host_hot_boundary_writes++;
+            }
+        }
     }
 
     if (previous_state == LPN_STATE_COLD && meta->state == LPN_STATE_HOT) {
@@ -635,6 +775,10 @@ static void ssd_update_lpn_temperature(struct ssd *ssd, uint64_t lpn)
     if (meta->write_count != UINT32_MAX) {
         meta->write_count++;
     }
+
+    /* 새 Host version은 erase survival을 다시 0부터 센다. */
+    meta->erase_survival_count = 0;
+    return reason;
 }
 
 /* LPN의 현재 온도에 맞는 non-FDP write pointer를 선택한다. */
@@ -964,17 +1108,44 @@ static void mark_page_valid(struct ssd *ssd, struct ppa *ppa)
     line->vpc++;
 }
 
+/* 실제 erase를 살아남은 valid LPN version에 block-erase feedback을 남긴다. */
+static void ssd_record_erase_survivor(struct ssd *ssd,
+                                      struct ppa *source_ppa)
+{
+    uint64_t lpn;
+    LpnMeta *meta;
+
+    ftl_assert(!ssd->fdp_enabled);
+    lpn = get_rmap_ent(ssd, source_ppa);
+    ftl_assert(valid_lpn(ssd, lpn));
+    meta = &ssd->lpn_meta[lpn];
+
+    if (meta->erase_survival_count != UINT32_MAX) {
+        meta->erase_survival_count++;
+    }
+
+    if (exp_lpn_watched(lpn)) {
+        EXP_LOG("[ERASE_SURVIVE] lpn=%lu count=%u source " PPA_FMT "\n",
+                lpn, meta->erase_survival_count, PPA_ARG(source_ppa));
+    }
+}
+
 /* erase가 끝난 block의 모든 page와 vpc/ipc를 free 상태로 초기화한다. */
 static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
 {
     struct ssdparams *spp = &ssd->sp;
     struct nand_block *blk = get_blk(ssd, ppa);
     struct nand_page *pg = NULL;
+    struct ppa source_ppa = *ppa;
 
     for (int i = 0; i < spp->pgs_per_blk; i++) {
         /* page 상태 초기화 */
         pg = &blk->pg[i];
         ftl_assert(pg->nsecs == spp->secs_per_pg);
+        if (!ssd->fdp_enabled && pg->status == PG_VALID) {
+            source_ppa.g.pg = i;
+            ssd_record_erase_survivor(ssd, &source_ppa);
+        }
         pg->status = PG_FREE;
     }
 
@@ -1252,6 +1423,8 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     struct ppa ppa;
     uint64_t lpn;
     uint64_t curlat = 0, maxlat = 0;
+    ClassificationReason class_reason;
+    uint32_t survival_before;
     int r;
 
     if (end_lpn >= spp->tt_pgs) {
@@ -1271,7 +1444,8 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
 
     for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
         /* host write temperature history 갱신 */
-        ssd_update_lpn_temperature(ssd, lpn);
+        class_reason =
+            ssd_classify_lpn_write(ssd, lpn, &survival_before);
 
         ppa = get_maptbl_ent(ssd, lpn);
         if (mapped_ppa(&ppa)) {
@@ -1299,6 +1473,14 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         if (femu_dbg_lpn_has_secret(ssd, lpn)) {
             exp_watch_lpn_add(lpn);
             exp_watch_blk[ppa.g.blk] = 1;
+            EXP_LOG("[CLASSIFY] lpn=%lu state=%s reason=%s "
+                    "interval=%" PRIu64 " survival_before=%u R=%u\n",
+                    lpn,
+                    ssd->lpn_meta[lpn].state == LPN_STATE_HOT ?
+                    "HOT" : "COLD",
+                    ssd_classification_reason_name(class_reason),
+                    ssd->lpn_meta[lpn].update_interval, survival_before,
+                    ssd->erase_survival_threshold);
             EXP_LOG("[WRITE] lpn=%lu -> " PPA_FMT " (secret)\n",
                     lpn, PPA_ARG(&ppa));
         }
