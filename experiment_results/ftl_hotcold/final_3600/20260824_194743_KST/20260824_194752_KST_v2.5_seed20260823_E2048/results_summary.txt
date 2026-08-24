@@ -1,0 +1,2 @@
+valid=NO
+failure_reason=safety_check_failed

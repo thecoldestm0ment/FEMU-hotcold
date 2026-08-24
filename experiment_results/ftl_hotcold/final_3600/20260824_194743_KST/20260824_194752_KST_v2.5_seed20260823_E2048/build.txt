@@ -1,0 +1,2 @@
+ninja: Entering directory `build-femu'
+[1/4] Generating qemu-version.h with a custom command (wrapped by meson to capture output)

@@ -1,0 +1,3 @@
+target_size=6442450944
+root_source=/dev/sda2
+lsblk: unknown column: MOUNTPOINTS

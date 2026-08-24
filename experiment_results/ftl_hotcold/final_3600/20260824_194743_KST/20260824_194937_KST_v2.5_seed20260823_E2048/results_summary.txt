@@ -1,0 +1,6 @@
+valid=NO
+failure_reason=host_oom_killed_qemu
+oom_timestamp=2026-08-24T20:52:12+09:00
+qemu_anon_rss_kib_at_kill=7146392
+host_ram_gib=7.5
+host_swap_gib=2.0

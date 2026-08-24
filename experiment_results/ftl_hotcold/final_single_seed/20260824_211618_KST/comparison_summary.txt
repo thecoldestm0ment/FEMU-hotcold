@@ -1,0 +1,16 @@
+seed=20260824
+workload=randwrite,16KiB,Zipf-0.99,QD128,32jobs,size-5G,runtime-3600s,no-offset,no-marker
+
+version,waf,gc_page_writes_per_host_write,average_gc_copy,gc_count,iops
+baseline,7.990327,6.990327,14335.056199,57919,8224
+v1,7.547217,6.547217,14214.948053,57982,8733
+v2,7.600206,6.600206,14230.212451,57971,8670
+v2.5,7.584884,6.584884,14225.724621,57971,8673
+
+v1_waf_change_vs_baseline_percent=-5.545580
+v2_waf_change_vs_baseline_percent=-4.882416
+v2.5_waf_change_vs_baseline_percent=-5.074173
+lowest_waf_hotcold_version=v1
+
+all_runs_valid=YES
+protected_source_diff=NONE
