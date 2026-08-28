@@ -1,0 +1,11 @@
+target_size=6442450944
+root_source=/dev/sda2
+NAME    KNAME   TYPE        SIZE PKNAME MOUNTPOINT
+fd0     fd0     disk        4096        
+loop0   loop0   loop    57626624        /snap/core18/1880
+loop1   loop1   loop    31334400        /snap/snapd/8542
+loop2   loop2   loop    74735616        /snap/lxd/16099
+sda     sda     disk 85899345920        
+├─sda1  sda1    part     1048576 sda    
+└─sda2  sda2    part 85896200192 sda    /
+nvme0n1 nvme0n1 disk  6442450944        

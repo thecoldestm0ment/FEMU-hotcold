@@ -1,0 +1,8 @@
+boundary_total=887012
+zero=873192 (98.4420%)
+one=13820 (1.5580%)
+two=0 (0.0000%)
+three_plus=0 (0.0000%)
+boundary_hot=873192
+survival_cold=13820
+histogram_reason_total=887012

@@ -1,0 +1,3 @@
+sync_rc=0
+NVMe command result:00000000
+measurement_reset_rc=0

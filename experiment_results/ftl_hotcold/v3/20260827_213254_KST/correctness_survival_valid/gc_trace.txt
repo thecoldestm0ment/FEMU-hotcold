@@ -1,0 +1,73 @@
+2:[FEMU] FTL-Log: LPN metadata: entries=2097152 entry_size=32 total=64 MiB T_fast=1024 T_slow=2000000 R=1
+770:fvm login: [FEMU] FTL-Log: BBSSD-STATS version=V3 hot_rewrite_window=1024 hot_boundary_window=2000000 erase_survival_threshold=1 host_page_writes=1572864 nand_page_writes=1572864 gc_page_writes=0 block_erases=0 waf=1.000000 gc_count=0 average_gc_copy=N/A host_hot_writes=0 host_cold_writes=1572864 hot_write_ratio=0.000000 host_cold_first_writes=1572864 host_hot_fast_writes=0 host_hot_boundary_writes=0 host_cold_survival_writes=0 host_cold_slow_writes=0 boundary_survival_zero=0 boundary_survival_one=0 boundary_survival_two=0 boundary_survival_three_plus=0 gc_hot_writes=0 gc_cold_writes=0 cold_to_hot_count=0 hot_to_cold_count=0 hot_pool_empty_count=0 cold_pool_empty_count=33 borrow_count=33 emergency_gc_count=0 counter_invariant=PASS
+772:[EXP] [CLASSIFY] lpn=0 state=HOT reason=BOUNDARY_HOT interval=1572864 survival_before=0 R=1
+774:[EXP] [GC_MOVE] lpn=0 ch=0 lun=0 pl=0 blk=64 pg=0 -> ch=1 lun=0 pl=0 blk=98 pg=0
+775:[EXP] [ERASE_SURVIVE] lpn=0 count=1 source ch=0 lun=0 pl=0 blk=64 pg=0
+848:[EXP] [GC_MOVE] lpn=0 ch=1 lun=0 pl=0 blk=98 pg=0 -> ch=0 lun=5 pl=0 blk=99 pg=196
+849:[EXP] [ERASE_SURVIVE] lpn=0 count=2 source ch=1 lun=0 pl=0 blk=98 pg=0
+911:[EXP] [GC_MOVE] lpn=0 ch=0 lun=5 pl=0 blk=99 pg=196 -> ch=0 lun=3 pl=0 blk=100 pg=156
+912:[EXP] [ERASE_SURVIVE] lpn=0 count=3 source ch=0 lun=5 pl=0 blk=99 pg=196
+975:[EXP] [GC_MOVE] lpn=0 ch=0 lun=3 pl=0 blk=100 pg=156 -> ch=6 lun=6 pl=0 blk=103 pg=154
+976:[EXP] [ERASE_SURVIVE] lpn=0 count=4 source ch=0 lun=3 pl=0 blk=100 pg=156
+1092:[EXP] [GC_MOVE] lpn=0 ch=6 lun=6 pl=0 blk=103 pg=154 -> ch=0 lun=4 pl=0 blk=106 pg=128
+1093:[EXP] [ERASE_SURVIVE] lpn=0 count=5 source ch=6 lun=6 pl=0 blk=103 pg=154
+1108:[EXP] [GC_MOVE] lpn=0 ch=0 lun=4 pl=0 blk=106 pg=128 -> ch=6 lun=0 pl=0 blk=107 pg=137
+1109:[EXP] [ERASE_SURVIVE] lpn=0 count=6 source ch=0 lun=4 pl=0 blk=106 pg=128
+1218:[EXP] [GC_MOVE] lpn=0 ch=6 lun=0 pl=0 blk=107 pg=137 -> ch=4 lun=2 pl=0 blk=110 pg=35
+1219:[EXP] [ERASE_SURVIVE] lpn=0 count=7 source ch=6 lun=0 pl=0 blk=107 pg=137
+1270:[EXP] [GC_MOVE] lpn=0 ch=4 lun=2 pl=0 blk=110 pg=35 -> ch=6 lun=4 pl=0 blk=113 pg=193
+1271:[EXP] [ERASE_SURVIVE] lpn=0 count=8 source ch=4 lun=2 pl=0 blk=110 pg=35
+1354:[EXP] [GC_MOVE] lpn=0 ch=6 lun=4 pl=0 blk=113 pg=193 -> ch=4 lun=4 pl=0 blk=124 pg=47
+1355:[EXP] [ERASE_SURVIVE] lpn=0 count=9 source ch=6 lun=4 pl=0 blk=113 pg=193
+1404:[EXP] [GC_MOVE] lpn=0 ch=4 lun=4 pl=0 blk=124 pg=47 -> ch=5 lun=5 pl=0 blk=64 pg=45
+1405:[EXP] [ERASE_SURVIVE] lpn=0 count=10 source ch=4 lun=4 pl=0 blk=124 pg=47
+1479:[EXP] [GC_MOVE] lpn=0 ch=5 lun=5 pl=0 blk=64 pg=45 -> ch=2 lun=0 pl=0 blk=101 pg=71
+1480:[EXP] [ERASE_SURVIVE] lpn=0 count=11 source ch=5 lun=5 pl=0 blk=64 pg=45
+1580:[EXP] [GC_MOVE] lpn=0 ch=2 lun=0 pl=0 blk=101 pg=71 -> ch=5 lun=1 pl=0 blk=103 pg=11
+1581:[EXP] [ERASE_SURVIVE] lpn=0 count=12 source ch=2 lun=0 pl=0 blk=101 pg=71
+1927:[EXP] [GC_MOVE] lpn=0 ch=5 lun=1 pl=0 blk=103 pg=11 -> ch=2 lun=6 pl=0 blk=108 pg=204
+1928:[EXP] [ERASE_SURVIVE] lpn=0 count=13 source ch=5 lun=1 pl=0 blk=103 pg=11
+2038:[EXP] [GC_MOVE] lpn=0 ch=2 lun=6 pl=0 blk=108 pg=204 -> ch=7 lun=0 pl=0 blk=113 pg=218
+2039:[EXP] [ERASE_SURVIVE] lpn=0 count=14 source ch=2 lun=6 pl=0 blk=108 pg=204
+2138:[EXP] [GC_MOVE] lpn=0 ch=7 lun=0 pl=0 blk=113 pg=218 -> ch=1 lun=1 pl=0 blk=122 pg=24
+2139:[EXP] [ERASE_SURVIVE] lpn=0 count=15 source ch=7 lun=0 pl=0 blk=113 pg=218
+2221:[EXP] [GC_MOVE] lpn=0 ch=1 lun=1 pl=0 blk=122 pg=24 -> ch=5 lun=3 pl=0 blk=119 pg=94
+2222:[EXP] [ERASE_SURVIVE] lpn=0 count=16 source ch=1 lun=1 pl=0 blk=122 pg=24
+2321:[EXP] [GC_MOVE] lpn=0 ch=5 lun=3 pl=0 blk=119 pg=94 -> ch=4 lun=3 pl=0 blk=101 pg=176
+2322:[EXP] [ERASE_SURVIVE] lpn=0 count=17 source ch=5 lun=3 pl=0 blk=119 pg=94
+2443:[EXP] [GC_MOVE] lpn=0 ch=4 lun=3 pl=0 blk=101 pg=176 -> ch=5 lun=0 pl=0 blk=111 pg=135
+2444:[EXP] [ERASE_SURVIVE] lpn=0 count=18 source ch=4 lun=3 pl=0 blk=101 pg=176
+2706:[EXP] [GC_MOVE] lpn=0 ch=5 lun=0 pl=0 blk=111 pg=135 -> ch=1 lun=0 pl=0 blk=117 pg=176
+2707:[EXP] [ERASE_SURVIVE] lpn=0 count=19 source ch=5 lun=0 pl=0 blk=111 pg=135
+2804:[EXP] [GC_MOVE] lpn=0 ch=1 lun=0 pl=0 blk=117 pg=176 -> ch=0 lun=1 pl=0 blk=108 pg=98
+2805:[EXP] [ERASE_SURVIVE] lpn=0 count=20 source ch=1 lun=0 pl=0 blk=117 pg=176
+2863:[EXP] [GC_MOVE] lpn=0 ch=0 lun=1 pl=0 blk=108 pg=98 -> ch=7 lun=2 pl=0 blk=115 pg=18
+2864:[EXP] [ERASE_SURVIVE] lpn=0 count=21 source ch=0 lun=1 pl=0 blk=108 pg=98
+3178:[EXP] [GC_MOVE] lpn=0 ch=7 lun=2 pl=0 blk=115 pg=18 -> ch=7 lun=4 pl=0 blk=122 pg=176
+3179:[EXP] [ERASE_SURVIVE] lpn=0 count=22 source ch=7 lun=2 pl=0 blk=115 pg=18
+3246:[EXP] [GC_MOVE] lpn=0 ch=7 lun=4 pl=0 blk=122 pg=176 -> ch=4 lun=0 pl=0 blk=112 pg=213
+3247:[EXP] [ERASE_SURVIVE] lpn=0 count=23 source ch=7 lun=4 pl=0 blk=122 pg=176
+3348:[EXP] [GC_MOVE] lpn=0 ch=4 lun=0 pl=0 blk=112 pg=213 -> ch=0 lun=5 pl=0 blk=121 pg=130
+3349:[EXP] [ERASE_SURVIVE] lpn=0 count=24 source ch=4 lun=0 pl=0 blk=112 pg=213
+3451:[EXP] [GC_MOVE] lpn=0 ch=0 lun=5 pl=0 blk=121 pg=130 -> ch=1 lun=0 pl=0 blk=99 pg=20
+3452:[EXP] [ERASE_SURVIVE] lpn=0 count=25 source ch=0 lun=5 pl=0 blk=121 pg=130
+3584:[EXP] [GC_MOVE] lpn=0 ch=1 lun=0 pl=0 blk=99 pg=20 -> ch=5 lun=6 pl=0 blk=106 pg=18
+3585:[EXP] [ERASE_SURVIVE] lpn=0 count=26 source ch=1 lun=0 pl=0 blk=99 pg=20
+4072:[EXP] [GC_MOVE] lpn=0 ch=5 lun=6 pl=0 blk=106 pg=18 -> ch=2 lun=6 pl=0 blk=64 pg=113
+4073:[EXP] [ERASE_SURVIVE] lpn=0 count=27 source ch=5 lun=6 pl=0 blk=106 pg=18
+4242:[EXP] [GC_MOVE] lpn=0 ch=2 lun=6 pl=0 blk=64 pg=113 -> ch=3 lun=3 pl=0 blk=124 pg=60
+4243:[EXP] [ERASE_SURVIVE] lpn=0 count=28 source ch=2 lun=6 pl=0 blk=64 pg=113
+4697:[EXP] [GC_MOVE] lpn=0 ch=3 lun=3 pl=0 blk=124 pg=60 -> ch=6 lun=0 pl=0 blk=99 pg=55
+4698:[EXP] [ERASE_SURVIVE] lpn=0 count=29 source ch=3 lun=3 pl=0 blk=124 pg=60
+5104:[EXP] [GC_MOVE] lpn=0 ch=6 lun=0 pl=0 blk=99 pg=55 -> ch=4 lun=0 pl=0 blk=115 pg=153
+5105:[EXP] [ERASE_SURVIVE] lpn=0 count=30 source ch=6 lun=0 pl=0 blk=99 pg=55
+5730:[EXP] [GC_MOVE] lpn=0 ch=4 lun=0 pl=0 blk=115 pg=153 -> ch=5 lun=3 pl=0 blk=114 pg=82
+5731:[EXP] [ERASE_SURVIVE] lpn=0 count=31 source ch=4 lun=0 pl=0 blk=115 pg=153
+6063:[EXP] [GC_MOVE] lpn=0 ch=5 lun=3 pl=0 blk=114 pg=82 -> ch=6 lun=5 pl=0 blk=101 pg=91
+6064:[EXP] [ERASE_SURVIVE] lpn=0 count=32 source ch=5 lun=3 pl=0 blk=114 pg=82
+6267:[EXP] [GC_MOVE] lpn=0 ch=6 lun=5 pl=0 blk=101 pg=91 -> ch=5 lun=7 pl=0 blk=64 pg=147
+6268:[EXP] [ERASE_SURVIVE] lpn=0 count=33 source ch=6 lun=5 pl=0 blk=101 pg=91
+6775:[EXP] [GC_MOVE] lpn=0 ch=5 lun=7 pl=0 blk=64 pg=147 -> ch=4 lun=2 pl=0 blk=125 pg=147
+6776:[EXP] [ERASE_SURVIVE] lpn=0 count=34 source ch=5 lun=7 pl=0 blk=64 pg=147
+7243:[EXP] [CLASSIFY] lpn=0 state=COLD reason=ERASE_SURVIVAL_COLD interval=1100145 survival_before=34 R=1
+7245:[FEMU] FTL-Log: BBSSD-STATS version=V3 hot_rewrite_window=1024 hot_boundary_window=2000000 erase_survival_threshold=1 host_page_writes=1100146 nand_page_writes=8031078 gc_page_writes=6930932 block_erases=31104 waf=7.300011 gc_count=486 average_gc_copy=14261.176955 host_hot_writes=466288 host_cold_writes=633858 hot_write_ratio=0.423842 host_cold_first_writes=0 host_hot_fast_writes=143832 host_hot_boundary_writes=322456 host_cold_survival_writes=609002 host_cold_slow_writes=24856 boundary_survival_zero=322456 boundary_survival_one=205524 boundary_survival_two=126462 boundary_survival_three_plus=277016 gc_hot_writes=2479070 gc_cold_writes=4451862 cold_to_hot_count=258960 hot_to_cold_count=187048 hot_pool_empty_count=0 cold_pool_empty_count=1 borrow_count=1 emergency_gc_count=0 counter_invariant=PASS

@@ -1,0 +1,38 @@
+764:fvm login: [FEMU] FTL-Log: BBSSD-STATS version=V3 hot_rewrite_window=1024 hot_boundary_window=4096 erase_survival_threshold=1 host_page_writes=1572864 nand_page_writes=1572864 gc_page_writes=0 block_erases=0 waf=1.000000 gc_count=0 average_gc_copy=N/A host_hot_writes=0 host_cold_writes=1572864 hot_write_ratio=0.000000 host_cold_first_writes=1572864 host_hot_fast_writes=0 host_hot_boundary_writes=0 host_cold_survival_writes=0 host_cold_slow_writes=0 boundary_survival_zero=0 boundary_survival_one=0 boundary_survival_two=0 boundary_survival_three_plus=0 gc_hot_writes=0 gc_cold_writes=0 cold_to_hot_count=0 hot_to_cold_count=0 hot_pool_empty_count=0 cold_pool_empty_count=33 borrow_count=33 emergency_gc_count=0 counter_invariant=PASS
+766:[EXP] [CLASSIFY] lpn=0 state=COLD reason=SLOW_REWRITE interval=1572864 survival_before=0 R=1
+768:[EXP] [GC_MOVE] lpn=0 ch=0 lun=0 pl=0 blk=97 pg=0 -> ch=1 lun=0 pl=0 blk=98 pg=0
+769:[EXP] [ERASE_SURVIVE] lpn=0 count=1 source ch=0 lun=0 pl=0 blk=97 pg=0
+906:[EXP] [GC_MOVE] lpn=0 ch=1 lun=0 pl=0 blk=98 pg=0 -> ch=2 lun=0 pl=0 blk=97 pg=98
+907:[EXP] [ERASE_SURVIVE] lpn=0 count=2 source ch=1 lun=0 pl=0 blk=98 pg=0
+980:[EXP] [GC_MOVE] lpn=0 ch=2 lun=0 pl=0 blk=97 pg=98 -> ch=1 lun=4 pl=0 blk=99 pg=221
+981:[EXP] [ERASE_SURVIVE] lpn=0 count=3 source ch=2 lun=0 pl=0 blk=97 pg=98
+1042:[EXP] [GC_MOVE] lpn=0 ch=1 lun=4 pl=0 blk=99 pg=221 -> ch=7 lun=2 pl=0 blk=97 pg=134
+1043:[EXP] [ERASE_SURVIVE] lpn=0 count=4 source ch=1 lun=4 pl=0 blk=99 pg=221
+1218:[EXP] [GC_MOVE] lpn=0 ch=7 lun=2 pl=0 blk=97 pg=134 -> ch=7 lun=2 pl=0 blk=100 pg=254
+1219:[EXP] [ERASE_SURVIVE] lpn=0 count=5 source ch=7 lun=2 pl=0 blk=97 pg=134
+1412:[EXP] [GC_MOVE] lpn=0 ch=7 lun=2 pl=0 blk=100 pg=254 -> ch=0 lun=7 pl=0 blk=61 pg=195
+1413:[EXP] [ERASE_SURVIVE] lpn=0 count=6 source ch=7 lun=2 pl=0 blk=100 pg=254
+1555:[EXP] [GC_MOVE] lpn=0 ch=0 lun=7 pl=0 blk=61 pg=195 -> ch=2 lun=6 pl=0 blk=25 pg=227
+1556:[EXP] [ERASE_SURVIVE] lpn=0 count=7 source ch=0 lun=7 pl=0 blk=61 pg=195
+1700:[EXP] [GC_MOVE] lpn=0 ch=2 lun=6 pl=0 blk=25 pg=227 -> ch=5 lun=3 pl=0 blk=57 pg=80
+1701:[EXP] [ERASE_SURVIVE] lpn=0 count=8 source ch=2 lun=6 pl=0 blk=25 pg=227
+1851:[EXP] [GC_MOVE] lpn=0 ch=5 lun=3 pl=0 blk=57 pg=80 -> ch=0 lun=0 pl=0 blk=16 pg=56
+1852:[EXP] [ERASE_SURVIVE] lpn=0 count=9 source ch=5 lun=3 pl=0 blk=57 pg=80
+2322:[EXP] [GC_MOVE] lpn=0 ch=0 lun=0 pl=0 blk=16 pg=56 -> ch=4 lun=6 pl=0 blk=55 pg=52
+2323:[EXP] [ERASE_SURVIVE] lpn=0 count=10 source ch=0 lun=0 pl=0 blk=16 pg=56
+2746:[EXP] [GC_MOVE] lpn=0 ch=4 lun=6 pl=0 blk=55 pg=52 -> ch=3 lun=5 pl=0 blk=63 pg=170
+2747:[EXP] [ERASE_SURVIVE] lpn=0 count=11 source ch=4 lun=6 pl=0 blk=55 pg=52
+3187:[EXP] [GC_MOVE] lpn=0 ch=3 lun=5 pl=0 blk=63 pg=170 -> ch=0 lun=2 pl=0 blk=34 pg=95
+3188:[EXP] [ERASE_SURVIVE] lpn=0 count=12 source ch=3 lun=5 pl=0 blk=63 pg=170
+3674:[EXP] [GC_MOVE] lpn=0 ch=0 lun=2 pl=0 blk=34 pg=95 -> ch=3 lun=4 pl=0 blk=52 pg=174
+3675:[EXP] [ERASE_SURVIVE] lpn=0 count=13 source ch=0 lun=2 pl=0 blk=34 pg=95
+4534:[EXP] [GC_MOVE] lpn=0 ch=3 lun=4 pl=0 blk=52 pg=174 -> ch=7 lun=2 pl=0 blk=49 pg=223
+4535:[EXP] [ERASE_SURVIVE] lpn=0 count=14 source ch=3 lun=4 pl=0 blk=52 pg=174
+4822:[EXP] [GC_MOVE] lpn=0 ch=7 lun=2 pl=0 blk=49 pg=223 -> ch=2 lun=0 pl=0 blk=103 pg=185
+4823:[EXP] [ERASE_SURVIVE] lpn=0 count=15 source ch=7 lun=2 pl=0 blk=49 pg=223
+5806:[EXP] [GC_MOVE] lpn=0 ch=2 lun=0 pl=0 blk=103 pg=185 -> ch=4 lun=3 pl=0 blk=22 pg=139
+5807:[EXP] [ERASE_SURVIVE] lpn=0 count=16 source ch=2 lun=0 pl=0 blk=103 pg=185
+6787:[EXP] [GC_MOVE] lpn=0 ch=4 lun=3 pl=0 blk=22 pg=139 -> ch=4 lun=0 pl=0 blk=40 pg=41
+6788:[EXP] [ERASE_SURVIVE] lpn=0 count=17 source ch=4 lun=3 pl=0 blk=22 pg=139
+6883:[EXP] [CLASSIFY] lpn=0 state=COLD reason=SLOW_REWRITE interval=1234197 survival_before=17 R=1
+6885:[FEMU] FTL-Log: BBSSD-STATS version=V3 hot_rewrite_window=1024 hot_boundary_window=4096 erase_survival_threshold=1 host_page_writes=1234198 nand_page_writes=8053971 gc_page_writes=6819773 block_erases=31168 waf=6.525672 gc_count=487 average_gc_copy=14003.640657 host_hot_writes=206208 host_cold_writes=1027990 hot_write_ratio=0.167079 host_cold_first_writes=0 host_hot_fast_writes=133848 host_hot_boundary_writes=72360 host_cold_survival_writes=1144 host_cold_slow_writes=1026846 boundary_survival_zero=72360 boundary_survival_one=1144 boundary_survival_two=0 boundary_survival_three_plus=0 gc_hot_writes=39316 gc_cold_writes=6780457 cold_to_hot_count=84908 hot_to_cold_count=81576 hot_pool_empty_count=0 cold_pool_empty_count=6 borrow_count=6 emergency_gc_count=0 counter_invariant=PASS

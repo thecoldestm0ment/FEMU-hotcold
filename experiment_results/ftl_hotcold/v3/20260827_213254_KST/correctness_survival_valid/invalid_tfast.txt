@@ -1,0 +1,2 @@
+-device femu,devsz_mb=6144,namespaces=1,femu_mode=1,secsz=512,secs_per_pg=8,pgs_per_blk=256,blks_per_pl=128,pls_per_lun=1,luns_per_ch=8,nchs=8,pg_rd_lat=40000,pg_wr_lat=200000,blk_er_lat=2000000,ch_xfer_lat=0,gc_thres_pcent=75,gc_thres_pcent_high=95
+[FEMU] FTL-Err: invalid FEMU_HOT_REWRITE_WINDOW='0' (expected positive integer)

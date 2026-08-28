@@ -1,0 +1,4 @@
+5bb95578e0f65dddd7d561bdf1ebf5b29f42664802bef20e5fbe7da7be92e4c5  hw/femu/bbssd/ftl.c
+6903c9b35638dcf12e292e88c36df884edc4a37386767c65d5eea9989cd91ac5  hw/femu/bbssd/ftl.h
+d4d7116d47d0501a0c26f7582a9ac42d247a1ac55ccf3030242625105551aebc  hw/femu/bbssd/bb.c
+cda51937db137011e26469e8a8a3148b658a209526a05dd707f6988e3daa3edf  hw/femu/scripts/run-blackbox.sh

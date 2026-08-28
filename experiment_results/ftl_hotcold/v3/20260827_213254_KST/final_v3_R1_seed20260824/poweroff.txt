@@ -1,0 +1,4 @@
+poweroff_requested_at=2026-08-28T11:54:00+09:00
+ssh_result=Connection to 127.0.0.1 closed by remote host.
+qemu_process_after_poweroff=none
+guest_poweroff=PASS
