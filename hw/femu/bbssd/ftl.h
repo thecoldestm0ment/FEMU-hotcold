@@ -352,6 +352,11 @@ struct ssd {
     uint64_t borrow_count;
     uint64_t emergency_gc_count;
 
+    /* non-FDP Hot/Cold line-pool configuration */
+    uint32_t hot_pool_percent;
+    uint32_t initial_hot_line_count;
+    uint32_t initial_cold_line_count;
+
     /* non-FDP Phase 2: LPN별 host-write 이력과 현재 분류 */
     LpnMeta *lpn_meta;
     uint64_t host_write_seq;
@@ -379,6 +384,7 @@ struct ssd {
 void ssd_init(FemuCtrl *n);
 void ssd_print_stats(struct ssd *ssd);
 void ssd_reset_stats(struct ssd *ssd);
+void ssd_reset_measurement(struct ssd *ssd);
 
 /* NAND media-layer bridge (hw/femu/bbssd/ftl-media.c) */
 void bb_nand_media_init(struct ssd *ssd);

@@ -63,6 +63,7 @@ sudo FEMU_EXP_LOG=${FEMU_EXP_LOG} \
      FEMU_SECRET=${FEMU_SECRET} \
      FEMU_DUMP_LPN=${FEMU_DUMP_LPN} \
      FEMU_HOT_REWRITE_WINDOW=${FEMU_HOT_REWRITE_WINDOW} \
+     FEMU_HOT_POOL_PERCENT=${FEMU_HOT_POOL_PERCENT} \
      ./qemu-system-x86_64 \
     -name "FEMU-BBSSD-VM" \
     -enable-kvm \
