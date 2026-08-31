@@ -332,18 +332,20 @@ struct ssd {
     struct ssd_channel *ch;
     struct ppa *maptbl; /* page level mapping table */
     uint64_t *rmap;     /* reverse mapptbl, assume it's stored in OOB */
-    /* non-FDP Phase 3: 두 pointer는 서로 다른 active line을 소유한다. */
+    /* 두 pointer는 서로 다른 active line을 소유 */
     struct write_pointer wp_hot;
     struct write_pointer wp_cold;
     struct line_mgmt lm;
-    /* non-FDP Phase 1: WAF 계산에 필요한 page-write counter */
+    /* page-write counter */
     uint64_t host_page_writes;
     uint64_t nand_page_writes;
     uint64_t gc_page_writes;
     uint64_t block_erases;
     uint64_t gc_count;
+    /* host Hot/Cold 결과 */ 
     uint64_t host_hot_writes;
     uint64_t host_cold_writes;
+    /* Host 분류 원인 세부분석 */
     uint64_t host_cold_first_writes;
     uint64_t host_hot_fast_writes;
     uint64_t host_hot_boundary_writes;
@@ -353,14 +355,16 @@ struct ssd {
     uint64_t boundary_survival_one;
     uint64_t boundary_survival_two;
     uint64_t boundary_survival_three_plus;
+    /* GC 배치 */
     uint64_t gc_hot_writes;
     uint64_t gc_cold_writes;
+    /* pool 상태 */
     uint64_t cold_to_hot_count;
     uint64_t hot_to_cold_count;
     uint64_t hot_pool_empty_count;
     uint64_t cold_pool_empty_count;
     uint64_t borrow_count;
-    uint64_t emergency_gc_count;
+    uint64_t emergency_gc_count; // host write 전에 강제로 foreground GC를 수행한 횟수
 
     /* non-FDP V3: LPN별 host-write 이력과 erase-survival feedback */
     LpnMeta *lpn_meta;
