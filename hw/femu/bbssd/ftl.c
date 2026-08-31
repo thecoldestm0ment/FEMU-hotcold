@@ -2,9 +2,11 @@
 #include "ftl-internal.h"
 
 //#define FEMU_DEBUG_FTL
-#define HOT_REWRITE_WINDOW_DEFAULT 1024ULL
-#define HOT_BOUNDARY_WINDOW_DEFAULT 4096ULL
-#define ERASE_SURVIVAL_THRESHOLD_DEFAULT 1U
+/* V4 defaults are provisional experiment settings, not tuned optima. */
+#define FREQUENCY_WINDOW_NS_DEFAULT 1000000000ULL
+#define HOT_WRITES_PER_WINDOW_DEFAULT 4U
+#define COLD_WRITES_PER_WINDOW_DEFAULT 1U
+#define ERASE_EVENT_THRESHOLD_DEFAULT 1U
 
 /*
  * 기본 bbssd(non-FDP) FTL 읽기 순서
@@ -32,7 +34,7 @@ static void ssd_trim_fdp_style(FemuCtrl *n, NvmeRequest *req, uint64_t slba,
 static void ssd_reset_maptbl(struct ssd *ssd);
 static void exp_load_cfg(void);
 
-/* V3 runtime parameters: unset variables use the documented defaults. */
+/* Runtime parameters: unset variables use the provisional defaults above. */
 static uint64_t ssd_load_positive_u64(const char *name,
                                       uint64_t default_value)
 {
@@ -70,7 +72,7 @@ static uint32_t ssd_load_positive_u32(const char *name,
     return (uint32_t)parsed;
 }
 
-/* Reset measurement counters only. LPN history intentionally survives. */
+/* SSD 초기화와 measurement 경계에서 공통으로 쓰는 통계 초기화다. */
 void ssd_reset_stats(struct ssd *ssd)
 {
     ssd->host_page_writes = 0;
@@ -80,15 +82,14 @@ void ssd_reset_stats(struct ssd *ssd)
     ssd->gc_count = 0;
     ssd->host_hot_writes = 0;
     ssd->host_cold_writes = 0;
-    ssd->host_cold_first_writes = 0;
-    ssd->host_hot_fast_writes = 0;
-    ssd->host_hot_boundary_writes = 0;
-    ssd->host_cold_survival_writes = 0;
-    ssd->host_cold_slow_writes = 0;
-    ssd->boundary_survival_zero = 0;
-    ssd->boundary_survival_one = 0;
-    ssd->boundary_survival_two = 0;
-    ssd->boundary_survival_three_plus = 0;
+    ssd->host_cold_low_frequency_writes = 0;
+    ssd->host_hot_high_frequency_writes = 0;
+    ssd->host_hot_erase_signal_writes = 0;
+    ssd->host_cold_erase_signal_writes = 0;
+    ssd->mid_frequency_erase_events_zero = 0;
+    ssd->mid_frequency_erase_events_one = 0;
+    ssd->mid_frequency_erase_events_two = 0;
+    ssd->mid_frequency_erase_events_three_plus = 0;
     ssd->gc_hot_writes = 0;
     ssd->gc_cold_writes = 0;
     ssd->cold_to_hot_count = 0;
@@ -97,6 +98,21 @@ void ssd_reset_stats(struct ssd *ssd)
     ssd->cold_pool_empty_count = 0;
     ssd->borrow_count = 0;
     ssd->emergency_gc_count = 0;
+}
+
+/*
+ * 새 측정 구간은 preconditioning의 접근 패턴을 상속하지 않는다.
+ * NAND mapping, page/line 상태는 그대로 두고 통계와 classifier 관찰 이력만
+ * 초기화하므로 다음 host write는 각 LPN의 새 window를 시작한다.
+ */
+void ssd_reset_measurement(struct ssd *ssd)
+{
+    ssd_reset_stats(ssd);
+
+    if (!ssd->fdp_enabled && ssd->lpn_meta != NULL) {
+        memset(ssd->lpn_meta, 0,
+               sizeof(*ssd->lpn_meta) * (size_t)ssd->sp.tt_pgs);
+    }
 }
 
 /*
@@ -116,15 +132,17 @@ void ssd_print_stats(struct ssd *ssd)
         ssd->gc_hot_writes + ssd->gc_cold_writes ==
         ssd->gc_page_writes &&
         ssd->host_hot_writes ==
-        ssd->host_hot_fast_writes + ssd->host_hot_boundary_writes &&
+        ssd->host_hot_high_frequency_writes +
+        ssd->host_hot_erase_signal_writes &&
         ssd->host_cold_writes ==
-        ssd->host_cold_first_writes + ssd->host_cold_survival_writes +
-        ssd->host_cold_slow_writes &&
-        ssd->boundary_survival_zero + ssd->boundary_survival_one +
-        ssd->boundary_survival_two +
-        ssd->boundary_survival_three_plus ==
-        ssd->host_hot_boundary_writes +
-        ssd->host_cold_survival_writes;
+        ssd->host_cold_low_frequency_writes +
+        ssd->host_cold_erase_signal_writes &&
+        ssd->mid_frequency_erase_events_zero +
+        ssd->mid_frequency_erase_events_one +
+        ssd->mid_frequency_erase_events_two +
+        ssd->mid_frequency_erase_events_three_plus ==
+        ssd->host_hot_erase_signal_writes +
+        ssd->host_cold_erase_signal_writes;
 
     if (ssd->host_page_writes == 0) {
         snprintf(waf, sizeof(waf), "N/A");
@@ -149,9 +167,10 @@ void ssd_print_stats(struct ssd *ssd)
                  (double)ssd->host_page_writes);
     }
 
-    ftl_log("BBSSD-STATS version=V3 hot_rewrite_window=%" PRIu64
-            " hot_boundary_window=%" PRIu64
-            " erase_survival_threshold=%u"
+    ftl_log("BBSSD-STATS version=V4 frequency_window_ns=%" PRIu64
+            " hot_writes_per_window=%u"
+            " cold_writes_per_window=%u"
+            " erase_event_threshold=%u"
             " host_page_writes=%" PRIu64
             " nand_page_writes=%" PRIu64
             " gc_page_writes=%" PRIu64
@@ -162,15 +181,14 @@ void ssd_print_stats(struct ssd *ssd)
             " host_hot_writes=%" PRIu64
             " host_cold_writes=%" PRIu64
             " hot_write_ratio=%s"
-            " host_cold_first_writes=%" PRIu64
-            " host_hot_fast_writes=%" PRIu64
-            " host_hot_boundary_writes=%" PRIu64
-            " host_cold_survival_writes=%" PRIu64
-            " host_cold_slow_writes=%" PRIu64
-            " boundary_survival_zero=%" PRIu64
-            " boundary_survival_one=%" PRIu64
-            " boundary_survival_two=%" PRIu64
-            " boundary_survival_three_plus=%" PRIu64
+            " host_cold_low_frequency_writes=%" PRIu64
+            " host_hot_high_frequency_writes=%" PRIu64
+            " host_hot_erase_signal_writes=%" PRIu64
+            " host_cold_erase_signal_writes=%" PRIu64
+            " mid_frequency_erase_events_zero=%" PRIu64
+            " mid_frequency_erase_events_one=%" PRIu64
+            " mid_frequency_erase_events_two=%" PRIu64
+            " mid_frequency_erase_events_three_plus=%" PRIu64
             " gc_hot_writes=%" PRIu64
             " gc_cold_writes=%" PRIu64
             " cold_to_hot_count=%" PRIu64
@@ -180,17 +198,20 @@ void ssd_print_stats(struct ssd *ssd)
             " borrow_count=%" PRIu64
             " emergency_gc_count=%" PRIu64
             " counter_invariant=%s\n",
-            ssd->hot_rewrite_window, ssd->hot_boundary_window,
-            ssd->erase_survival_threshold, ssd->host_page_writes,
+            ssd->frequency_window_ns, ssd->hot_writes_per_window,
+            ssd->cold_writes_per_window, ssd->erase_event_threshold,
+            ssd->host_page_writes,
             ssd->nand_page_writes, ssd->gc_page_writes,
             ssd->block_erases, waf, ssd->gc_count, average_gc_copy,
             ssd->host_hot_writes, ssd->host_cold_writes, hot_write_ratio,
-            ssd->host_cold_first_writes, ssd->host_hot_fast_writes,
-            ssd->host_hot_boundary_writes,
-            ssd->host_cold_survival_writes,
-            ssd->host_cold_slow_writes, ssd->boundary_survival_zero,
-            ssd->boundary_survival_one, ssd->boundary_survival_two,
-            ssd->boundary_survival_three_plus,
+            ssd->host_cold_low_frequency_writes,
+            ssd->host_hot_high_frequency_writes,
+            ssd->host_hot_erase_signal_writes,
+            ssd->host_cold_erase_signal_writes,
+            ssd->mid_frequency_erase_events_zero,
+            ssd->mid_frequency_erase_events_one,
+            ssd->mid_frequency_erase_events_two,
+            ssd->mid_frequency_erase_events_three_plus,
             ssd->gc_hot_writes, ssd->gc_cold_writes,
             ssd->cold_to_hot_count, ssd->hot_to_cold_count,
             ssd->hot_pool_empty_count, ssd->cold_pool_empty_count,
@@ -638,10 +659,10 @@ static void ssd_init_lpn_metadata(struct ssd *ssd)
     uint64_t metadata_bytes;
 
     ssd->lpn_meta = NULL;
-    ssd->host_write_seq = 0;
-    ssd->hot_rewrite_window = HOT_REWRITE_WINDOW_DEFAULT;
-    ssd->hot_boundary_window = HOT_BOUNDARY_WINDOW_DEFAULT;
-    ssd->erase_survival_threshold = ERASE_SURVIVAL_THRESHOLD_DEFAULT;
+    ssd->frequency_window_ns = FREQUENCY_WINDOW_NS_DEFAULT;
+    ssd->hot_writes_per_window = HOT_WRITES_PER_WINDOW_DEFAULT;
+    ssd->cold_writes_per_window = COLD_WRITES_PER_WINDOW_DEFAULT;
+    ssd->erase_event_threshold = ERASE_EVENT_THRESHOLD_DEFAULT;
 
     if (ssd->fdp_enabled) {
         return;
@@ -649,74 +670,91 @@ static void ssd_init_lpn_metadata(struct ssd *ssd)
 
     /* UNSEEN을 0으로 정의했으므로 zero allocation이 모든 초기값을 만든다. */
     ssd->lpn_meta = g_new0(LpnMeta, spp->tt_pgs);
-    ssd->hot_rewrite_window =
-        ssd_load_positive_u64("FEMU_HOT_REWRITE_WINDOW",
-                              HOT_REWRITE_WINDOW_DEFAULT);
-    ssd->hot_boundary_window =
-        ssd_load_positive_u64("FEMU_HOT_BOUNDARY_WINDOW",
-                              HOT_BOUNDARY_WINDOW_DEFAULT);
-    ssd->erase_survival_threshold =
-        ssd_load_positive_u32("FEMU_ERASE_SURVIVAL_THRESHOLD",
-                              ERASE_SURVIVAL_THRESHOLD_DEFAULT);
+    ssd->frequency_window_ns =
+        ssd_load_positive_u64("FEMU_FREQUENCY_WINDOW_NS",
+                              FREQUENCY_WINDOW_NS_DEFAULT);
+    ssd->hot_writes_per_window =
+        ssd_load_positive_u32("FEMU_HOT_WRITES_PER_WINDOW",
+                              HOT_WRITES_PER_WINDOW_DEFAULT);
+    ssd->cold_writes_per_window =
+        ssd_load_positive_u32("FEMU_COLD_WRITES_PER_WINDOW",
+                              COLD_WRITES_PER_WINDOW_DEFAULT);
+    ssd->erase_event_threshold =
+        ssd_load_positive_u32("FEMU_ERASE_EVENT_THRESHOLD",
+                              ERASE_EVENT_THRESHOLD_DEFAULT);
 
-    if (ssd->hot_boundary_window <= ssd->hot_rewrite_window) {
-        ftl_err("FEMU_HOT_BOUNDARY_WINDOW (%" PRIu64
-                ") must be greater than FEMU_HOT_REWRITE_WINDOW (%" PRIu64
-                ")\n",
-                ssd->hot_boundary_window, ssd->hot_rewrite_window);
+    /* 이 관계가 깨지면 erase signal을 쓰는 중간 구간이 정의될 수 없다. */
+    if (ssd->hot_writes_per_window <= ssd->cold_writes_per_window) {
+        ftl_err("FEMU_HOT_WRITES_PER_WINDOW (%u) must be greater than "
+                "FEMU_COLD_WRITES_PER_WINDOW (%u)\n",
+                ssd->hot_writes_per_window,
+                ssd->cold_writes_per_window);
         exit(EXIT_FAILURE);
     }
 
     metadata_bytes = (uint64_t)spp->tt_pgs * sizeof(*ssd->lpn_meta);
     ftl_log("LPN metadata: entries=%d entry_size=%zu total=%" PRIu64
-            " MiB T_fast=%" PRIu64 " T_slow=%" PRIu64 " R=%u\n",
+            " MiB window_ns=%" PRIu64 " hot_writes=%u cold_writes=%u"
+            " erase_event_threshold=%u\n",
             spp->tt_pgs, sizeof(*ssd->lpn_meta), metadata_bytes / MiB,
-            ssd->hot_rewrite_window, ssd->hot_boundary_window,
-            ssd->erase_survival_threshold);
+            ssd->frequency_window_ns, ssd->hot_writes_per_window,
+            ssd->cold_writes_per_window, ssd->erase_event_threshold);
 }
 
 typedef enum ClassificationReason {
-    CLASS_REASON_FIRST_WRITE = 0,
-    CLASS_REASON_FAST_REWRITE,
-    CLASS_REASON_BOUNDARY_HOT,
-    CLASS_REASON_ERASE_SURVIVAL_COLD,
-    CLASS_REASON_SLOW_REWRITE,
+    CLASS_REASON_LOW_FREQUENCY = 0,
+    CLASS_REASON_HIGH_FREQUENCY,
+    CLASS_REASON_ERASE_SIGNAL_HOT,
+    CLASS_REASON_ERASE_SIGNAL_COLD,
 } ClassificationReason;
 
 static const char *ssd_classification_reason_name(ClassificationReason reason)
 {
     switch (reason) {
-    case CLASS_REASON_FIRST_WRITE:
-        return "FIRST_WRITE";
-    case CLASS_REASON_FAST_REWRITE:
-        return "FAST_REWRITE";
-    case CLASS_REASON_BOUNDARY_HOT:
-        return "BOUNDARY_HOT";
-    case CLASS_REASON_ERASE_SURVIVAL_COLD:
-        return "ERASE_SURVIVAL_COLD";
-    case CLASS_REASON_SLOW_REWRITE:
-        return "SLOW_REWRITE";
+    case CLASS_REASON_LOW_FREQUENCY:
+        return "LOW_FREQUENCY";
+    case CLASS_REASON_HIGH_FREQUENCY:
+        return "HIGH_FREQUENCY";
+    case CLASS_REASON_ERASE_SIGNAL_HOT:
+        return "ERASE_SIGNAL_HOT";
+    case CLASS_REASON_ERASE_SIGNAL_COLD:
+        return "ERASE_SIGNAL_COLD";
     default:
         return "UNKNOWN";
     }
 }
 
-static void ssd_count_boundary_survival(struct ssd *ssd, uint32_t count)
+static void ssd_count_mid_frequency_erase_events(struct ssd *ssd,
+                                                 uint32_t count)
 {
     if (count == 0) {
-        ssd->boundary_survival_zero++;
+        ssd->mid_frequency_erase_events_zero++;
     } else if (count == 1) {
-        ssd->boundary_survival_one++;
+        ssd->mid_frequency_erase_events_one++;
     } else if (count == 2) {
-        ssd->boundary_survival_two++;
+        ssd->mid_frequency_erase_events_two++;
     } else {
-        ssd->boundary_survival_three_plus++;
+        ssd->mid_frequency_erase_events_three_plus++;
     }
 }
 
-/* Host rewrite interval을 주 신호로, erase survival을 경계 보정에만 쓴다. */
+static bool ssd_frequency_window_expired(struct ssd *ssd, LpnMeta *meta,
+                                         uint64_t now_ns)
+{
+    return meta->state == LPN_STATE_UNSEEN ||
+           now_ns < meta->window_start_ns ||
+           now_ns - meta->window_start_ns >= ssd->frequency_window_ns;
+}
+
+/*
+ * 각 LPN은 독립적인 fixed-duration window를 가진다. 호스트 요청의
+ * stime으로 만료를 확인하고, 만료 시 이전 frequency evidence를 폐기한다.
+ * 현재 write를 count에 먼저 포함한 뒤 frequency와 actual erase event로
+ * 현재 write의 placement class를 결정한다.
+ */
 static ClassificationReason ssd_classify_lpn_write(
-    struct ssd *ssd, uint64_t lpn, uint32_t *survival_before)
+    struct ssd *ssd, uint64_t lpn, uint64_t now_ns,
+    uint32_t *erase_events_before)
 {
     LpnMeta *meta;
     LpnState previous_state;
@@ -726,40 +764,37 @@ static ClassificationReason ssd_classify_lpn_write(
     ftl_assert(valid_lpn(ssd, lpn));
     meta = &ssd->lpn_meta[lpn];
     previous_state = meta->state;
-    *survival_before = meta->erase_survival_count;
+    *erase_events_before = meta->erase_event_count;
 
-    /* 0은 미관찰용으로 비우고, wrap 대신 64-bit 최댓값에서 포화시킨다. */
-    if (ssd->host_write_seq != UINT64_MAX) {
-        ssd->host_write_seq++;
+    if (ssd_frequency_window_expired(ssd, meta, now_ns)) {
+        meta->window_start_ns = now_ns;
+        meta->writes_in_window = 0;
+        meta->state = LPN_STATE_COLD;
     }
 
-    if (meta->write_count == 0) {
-        meta->update_interval = 0;
+    /* 현재 write를 현재 window의 frequency evidence에 포함한다. */
+    if (meta->writes_in_window != UINT32_MAX) {
+        meta->writes_in_window++;
+    }
+
+    if (meta->writes_in_window <= ssd->cold_writes_per_window) {
         meta->state = LPN_STATE_COLD;
-        reason = CLASS_REASON_FIRST_WRITE;
-        ssd->host_cold_first_writes++;
+        reason = CLASS_REASON_LOW_FREQUENCY;
+        ssd->host_cold_low_frequency_writes++;
+    } else if (meta->writes_in_window >= ssd->hot_writes_per_window) {
+        meta->state = LPN_STATE_HOT;
+        reason = CLASS_REASON_HIGH_FREQUENCY;
+        ssd->host_hot_high_frequency_writes++;
     } else {
-        ftl_assert(meta->last_write_seq <= ssd->host_write_seq);
-        meta->update_interval = ssd->host_write_seq - meta->last_write_seq;
-        if (meta->update_interval <= ssd->hot_rewrite_window) {
-            meta->state = LPN_STATE_HOT;
-            reason = CLASS_REASON_FAST_REWRITE;
-            ssd->host_hot_fast_writes++;
-        } else if (meta->update_interval > ssd->hot_boundary_window) {
+        ssd_count_mid_frequency_erase_events(ssd, *erase_events_before);
+        if (*erase_events_before >= ssd->erase_event_threshold) {
             meta->state = LPN_STATE_COLD;
-            reason = CLASS_REASON_SLOW_REWRITE;
-            ssd->host_cold_slow_writes++;
+            reason = CLASS_REASON_ERASE_SIGNAL_COLD;
+            ssd->host_cold_erase_signal_writes++;
         } else {
-            ssd_count_boundary_survival(ssd, *survival_before);
-            if (*survival_before >= ssd->erase_survival_threshold) {
-                meta->state = LPN_STATE_COLD;
-                reason = CLASS_REASON_ERASE_SURVIVAL_COLD;
-                ssd->host_cold_survival_writes++;
-            } else {
-                meta->state = LPN_STATE_HOT;
-                reason = CLASS_REASON_BOUNDARY_HOT;
-                ssd->host_hot_boundary_writes++;
-            }
+            meta->state = LPN_STATE_HOT;
+            reason = CLASS_REASON_ERASE_SIGNAL_HOT;
+            ssd->host_hot_erase_signal_writes++;
         }
     }
 
@@ -770,18 +805,16 @@ static ClassificationReason ssd_classify_lpn_write(
         ssd->hot_to_cold_count++;
     }
 
-    meta->last_write_seq = ssd->host_write_seq;
-    /* count가 0으로 wrap해 UNSEEN처럼 보이지 않도록 포화시킨다. */
-    if (meta->write_count != UINT32_MAX) {
-        meta->write_count++;
-    }
-
-    /* 새 Host version은 erase survival을 다시 0부터 센다. */
-    meta->erase_survival_count = 0;
+    /* 새 Host version은 actual erase event를 다시 0부터 센다. */
+    meta->erase_event_count = 0;
     return reason;
 }
 
-/* LPN의 현재 온도에 맞는 non-FDP write pointer를 선택한다. */
+/*
+ * LPN의 현재 온도에 맞는 non-FDP write pointer를 선택한다.
+ * Measurement reset 직후 GC가 먼저 오면 해당 LPN은 UNSEEN이므로,
+ * 분류 근거가 없는 valid data는 보수적으로 COLD line에 옮긴다.
+ */
 static struct write_pointer *ssd_select_write_pointer(struct ssd *ssd,
                                                       uint64_t lpn)
 {
@@ -791,7 +824,8 @@ static struct write_pointer *ssd_select_write_pointer(struct ssd *ssd,
     ftl_assert(valid_lpn(ssd, lpn));
     state = ssd->lpn_meta[lpn].state;
 
-    ftl_assert(state == LPN_STATE_COLD || state == LPN_STATE_HOT);
+    ftl_assert(state == LPN_STATE_UNSEEN || state == LPN_STATE_COLD ||
+               state == LPN_STATE_HOT);
     return state == LPN_STATE_HOT ? &ssd->wp_hot : &ssd->wp_cold;
 }
 
@@ -1108,9 +1142,13 @@ static void mark_page_valid(struct ssd *ssd, struct ppa *ppa)
     line->vpc++;
 }
 
-/* 실제 erase를 살아남은 valid LPN version에 block-erase feedback을 남긴다. */
-static void ssd_record_erase_survivor(struct ssd *ssd,
-                                      struct ppa *source_ppa)
+/*
+ * GC source block이 실제로 erase될 때, 그 block에서 valid했던 logical
+ * version에 actual erase event를 기록한다. 이 값은 추정 erase count가
+ * 아니라 mark_block_free()의 실제 block erase 상태 전이와 동일한 event다.
+ */
+static void ssd_record_erase_event(struct ssd *ssd,
+                                   struct ppa *source_ppa)
 {
     uint64_t lpn;
     LpnMeta *meta;
@@ -1120,13 +1158,13 @@ static void ssd_record_erase_survivor(struct ssd *ssd,
     ftl_assert(valid_lpn(ssd, lpn));
     meta = &ssd->lpn_meta[lpn];
 
-    if (meta->erase_survival_count != UINT32_MAX) {
-        meta->erase_survival_count++;
+    if (meta->erase_event_count != UINT32_MAX) {
+        meta->erase_event_count++;
     }
 
     if (exp_lpn_watched(lpn)) {
-        EXP_LOG("[ERASE_SURVIVE] lpn=%lu count=%u source " PPA_FMT "\n",
-                lpn, meta->erase_survival_count, PPA_ARG(source_ppa));
+        EXP_LOG("[ERASE_EVENT] lpn=%lu count=%u source " PPA_FMT "\n",
+                lpn, meta->erase_event_count, PPA_ARG(source_ppa));
     }
 }
 
@@ -1144,7 +1182,7 @@ static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
         ftl_assert(pg->nsecs == spp->secs_per_pg);
         if (!ssd->fdp_enabled && pg->status == PG_VALID) {
             source_ppa.g.pg = i;
-            ssd_record_erase_survivor(ssd, &source_ppa);
+            ssd_record_erase_event(ssd, &source_ppa);
         }
         pg->status = PG_FREE;
     }
@@ -1422,9 +1460,10 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     uint64_t end_lpn = (lba + len - 1) / spp->secs_per_pg;
     struct ppa ppa;
     uint64_t lpn;
+    uint64_t request_time_ns;
     uint64_t curlat = 0, maxlat = 0;
     ClassificationReason class_reason;
-    uint32_t survival_before;
+    uint32_t erase_events_before;
     int r;
 
     if (end_lpn >= spp->tt_pgs) {
@@ -1433,6 +1472,10 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         req->status = NVME_LBA_RANGE | NVME_DNR;
         return 0;
     }
+
+    /* 하나의 NVMe request에 포함된 모든 LPN은 같은 도착 시각을 쓴다. */
+    ftl_assert(req->stime >= 0);
+    request_time_ns = (uint64_t)req->stime;
 
     /* free line이 매우 부족하면 host write 처리 전에 foreground GC 수행 */
     while (should_gc_high(ssd)) {
@@ -1444,8 +1487,8 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
 
     for (lpn = start_lpn; lpn <= end_lpn; lpn++) {
         /* host write temperature history 갱신 */
-        class_reason =
-            ssd_classify_lpn_write(ssd, lpn, &survival_before);
+        class_reason = ssd_classify_lpn_write(
+            ssd, lpn, request_time_ns, &erase_events_before);
 
         ppa = get_maptbl_ent(ssd, lpn);
         if (mapped_ppa(&ppa)) {
@@ -1474,13 +1517,17 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
             exp_watch_lpn_add(lpn);
             exp_watch_blk[ppa.g.blk] = 1;
             EXP_LOG("[CLASSIFY] lpn=%lu state=%s reason=%s "
-                    "interval=%" PRIu64 " survival_before=%u R=%u\n",
+                    "request_time_ns=%" PRIu64
+                    " window_start_ns=%" PRIu64
+                    " writes_in_window=%u erase_events_before=%u"
+                    " erase_event_threshold=%u\n",
                     lpn,
                     ssd->lpn_meta[lpn].state == LPN_STATE_HOT ?
                     "HOT" : "COLD",
                     ssd_classification_reason_name(class_reason),
-                    ssd->lpn_meta[lpn].update_interval, survival_before,
-                    ssd->erase_survival_threshold);
+                    request_time_ns, ssd->lpn_meta[lpn].window_start_ns,
+                    ssd->lpn_meta[lpn].writes_in_window,
+                    erase_events_before, ssd->erase_event_threshold);
             EXP_LOG("[WRITE] lpn=%lu -> " PPA_FMT " (secret)\n",
                     lpn, PPA_ARG(&ppa));
         }

@@ -59,12 +59,13 @@ static void bb_flip(FemuCtrl *n, NvmeCmd *cmd)
         /*
          * 이 admin command를 실험 구간의 경계로 사용한다. 현재 누적값을
          * 먼저 출력해야 방금 끝난 구간의 WAF를 잃지 않고, 이어지는
-         * workload는 0부터 측정할 수 있다. FDP의 accounting 의미는
-         * 변경하지 않도록 Phase 1 counter는 non-FDP에서만 처리한다.
+         * workload는 0부터 측정할 수 있다. Physical mapping과 line 상태는
+         * 유지하고, preconditioning의 classifier history만 함께 지운다.
+         * FDP accounting 의미는 변경하지 않도록 non-FDP에서만 처리한다.
          */
         if (!ssd->fdp_enabled) {
             ssd_print_stats(ssd);
-            ssd_reset_stats(ssd);
+            ssd_reset_measurement(ssd);
         }
 
         /* counters are sharded per poller (see FemuPollerCtr); sum then reset */

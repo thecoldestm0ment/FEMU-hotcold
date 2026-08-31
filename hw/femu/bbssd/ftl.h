@@ -38,7 +38,7 @@ enum {
     PG_VALID = 2
 };
 
-/* 하나의 LPN을 host write 간격으로 분류한 현재 온도다. */
+/* 하나의 LPN을 host write frequency로 분류한 현재 온도다. */
 typedef enum LpnState {
     LPN_STATE_UNSEEN = 0,
     LPN_STATE_COLD,
@@ -53,10 +53,10 @@ typedef enum LineClass {
 } LineClass;
 
 typedef struct LpnMeta {
-    uint64_t last_write_seq; /* 마지막 host page-write sequence */
-    uint64_t update_interval; /* 직전 write와 현재 write의 sequence 차이 */
-    uint32_t write_count; /* 이 LPN에서 관찰한 host write 수 */
-    uint32_t erase_survival_count; /* 현재 version이 살아남은 block erase 수 */
+    uint64_t window_start_ns; /* 현재 LPN별 observation window의 시작 시각 */
+    uint32_t writes_in_window; /* 현재 window에 도착한 host page write 수 */
+    /* Current logical version이 valid 상태로 겪은 source-block erase 수 */
+    uint32_t erase_event_count;
     LpnState state; /* 현재 UNSEEN/COLD/HOT 분류 */
 } LpnMeta;
 
@@ -345,16 +345,15 @@ struct ssd {
     /* host Hot/Cold 결과 */ 
     uint64_t host_hot_writes;
     uint64_t host_cold_writes;
-    /* Host 분류 원인 세부분석 */
-    uint64_t host_cold_first_writes;
-    uint64_t host_hot_fast_writes;
-    uint64_t host_hot_boundary_writes;
-    uint64_t host_cold_survival_writes;
-    uint64_t host_cold_slow_writes;
-    uint64_t boundary_survival_zero;
-    uint64_t boundary_survival_one;
-    uint64_t boundary_survival_two;
-    uint64_t boundary_survival_three_plus;
+    /* Host frequency 분류 원인 세부분석 */
+    uint64_t host_cold_low_frequency_writes;
+    uint64_t host_hot_high_frequency_writes;
+    uint64_t host_hot_erase_signal_writes;
+    uint64_t host_cold_erase_signal_writes;
+    uint64_t mid_frequency_erase_events_zero;
+    uint64_t mid_frequency_erase_events_one;
+    uint64_t mid_frequency_erase_events_two;
+    uint64_t mid_frequency_erase_events_three_plus;
     /* GC 배치 */
     uint64_t gc_hot_writes;
     uint64_t gc_cold_writes;
@@ -366,12 +365,12 @@ struct ssd {
     uint64_t borrow_count;
     uint64_t emergency_gc_count; // host write 전에 강제로 foreground GC를 수행한 횟수
 
-    /* non-FDP V3: LPN별 host-write 이력과 erase-survival feedback */
+    /* non-FDP V4: LPN별 time window frequency와 actual erase event */
     LpnMeta *lpn_meta;
-    uint64_t host_write_seq;
-    uint64_t hot_rewrite_window;
-    uint64_t hot_boundary_window;
-    uint32_t erase_survival_threshold;
+    uint64_t frequency_window_ns;
+    uint32_t hot_writes_per_window;
+    uint32_t cold_writes_per_window;
+    uint32_t erase_event_threshold;
 
     /* lockless ring for communication with NVMe IO thread */
     struct rte_ring **to_ftl;
@@ -395,6 +394,7 @@ struct ssd {
 void ssd_init(FemuCtrl *n);
 void ssd_print_stats(struct ssd *ssd);
 void ssd_reset_stats(struct ssd *ssd);
+void ssd_reset_measurement(struct ssd *ssd);
 
 /* NAND media-layer bridge (hw/femu/bbssd/ftl-media.c) */
 void bb_nand_media_init(struct ssd *ssd);
