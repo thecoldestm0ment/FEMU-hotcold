@@ -1,0 +1,6 @@
+lsblk: unknown column: MOUNTPOINTS
+target_size_bytes=6442450944
+partition_count=0
+mount_count=0
+root_source=/dev/sda2
+lsblk: unknown column: MOUNTPOINTS

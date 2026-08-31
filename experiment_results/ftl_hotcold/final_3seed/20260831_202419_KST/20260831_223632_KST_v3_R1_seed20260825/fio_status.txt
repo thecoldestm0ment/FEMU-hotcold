@@ -1,0 +1,2 @@
+fio_rc=0
+host_elapsed_sec=3603

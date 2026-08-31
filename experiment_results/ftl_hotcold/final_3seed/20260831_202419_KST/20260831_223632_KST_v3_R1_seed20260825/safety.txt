@@ -1,0 +1,13 @@
+target_size_bytes=6442450944
+partition_count=0
+mount_count=0
+root_source=/dev/sda2
+NAME    PATH                SIZE TYPE MOUNTPOINT
+fd0     /dev/fd0            4096 disk 
+loop0   /dev/loop0      57626624 loop /snap/core18/1880
+loop1   /dev/loop1      31334400 loop /snap/snapd/8542
+loop2   /dev/loop2      74735616 loop /snap/lxd/16099
+sda     /dev/sda     85899345920 disk 
+├─sda1  /dev/sda1        1048576 part 
+└─sda2  /dev/sda2    85896200192 part /
+nvme0n1 /dev/nvme0n1  6442450944 disk 
