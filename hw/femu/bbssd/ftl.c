@@ -7,6 +7,7 @@
 #define HOT_WRITES_PER_WINDOW_DEFAULT 4U
 #define COLD_WRITES_PER_WINDOW_DEFAULT 1U
 #define ERASE_EVENT_THRESHOLD_DEFAULT 1U
+#define HOT_POOL_PERCENT_DEFAULT 50U
 
 /*
  * 기본 bbssd(non-FDP) FTL 읽기 순서
@@ -167,7 +168,10 @@ void ssd_print_stats(struct ssd *ssd)
                  (double)ssd->host_page_writes);
     }
 
-    ftl_log("BBSSD-STATS version=V4 frequency_window_ns=%" PRIu64
+    ftl_log("BBSSD-STATS version=V4 hot_pool_percent=%u"
+            " initial_hot_lines=%u"
+            " initial_cold_lines=%u"
+            " frequency_window_ns=%" PRIu64
             " hot_writes_per_window=%u"
             " cold_writes_per_window=%u"
             " erase_event_threshold=%u"
@@ -198,7 +202,9 @@ void ssd_print_stats(struct ssd *ssd)
             " borrow_count=%" PRIu64
             " emergency_gc_count=%" PRIu64
             " counter_invariant=%s\n",
-            ssd->frequency_window_ns, ssd->hot_writes_per_window,
+            ssd->hot_pool_percent, ssd->initial_hot_line_count,
+            ssd->initial_cold_line_count, ssd->frequency_window_ns,
+            ssd->hot_writes_per_window,
             ssd->cold_writes_per_window, ssd->erase_event_threshold,
             ssd->host_page_writes,
             ssd->nand_page_writes, ssd->gc_page_writes,
@@ -438,12 +444,32 @@ static void ssd_validate_free_line_counts(struct ssd *ssd)
     }
 }
 
-/* global free list를 non-FDP용 50:50 Cold/Hot pool로 한 번만 분배한다. */
+/* global free list를 runtime-configured Cold/Hot pool로 한 번만 분배한다. */
 static void ssd_init_hotcold_line_pools(struct ssd *ssd)
 {
     struct line_mgmt *lm = &ssd->lm;
     struct line *line;
-    int cold_target = (lm->tt_lines + 1) / 2;
+    int hot_target;
+    int cold_target;
+
+    ssd->hot_pool_percent =
+        ssd_load_positive_u32("FEMU_HOT_POOL_PERCENT",
+                              HOT_POOL_PERCENT_DEFAULT);
+    if (ssd->hot_pool_percent >= 100) {
+        ftl_err("invalid FEMU_HOT_POOL_PERCENT=%u (expected 1..99)\n",
+                ssd->hot_pool_percent);
+        exit(EXIT_FAILURE);
+    }
+
+    hot_target = lm->tt_lines * ssd->hot_pool_percent / 100;
+    cold_target = lm->tt_lines - hot_target;
+    if (hot_target == 0 || cold_target == 0) {
+        ftl_err("Hot/Cold pool split leaves an empty class: total=%d hot=%d "
+                "cold=%d\n", lm->tt_lines, hot_target, cold_target);
+        exit(EXIT_FAILURE);
+    }
+    ssd->initial_hot_line_count = hot_target;
+    ssd->initial_cold_line_count = cold_target;
 
     while ((line = QTAILQ_FIRST(&lm->free_line_list)) != NULL) {
         QTAILQ_REMOVE(&lm->free_line_list, line, entry);
@@ -460,6 +486,10 @@ static void ssd_init_hotcold_line_pools(struct ssd *ssd)
 
     /* Pool 사이로 이동했을 뿐이므로 aggregate free count는 바뀌지 않는다. */
     ssd_validate_free_line_counts(ssd);
+    ftl_log("Hot/Cold pools: configured_hot_percent=%u "
+            "initial_hot_lines=%u initial_cold_lines=%u total_lines=%d\n",
+            ssd->hot_pool_percent, ssd->initial_hot_line_count,
+            ssd->initial_cold_line_count, lm->tt_lines);
 }
 
 /* 한 class pool에서 line 하나와 해당 count를 함께 제거한다. */

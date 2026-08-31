@@ -365,6 +365,11 @@ struct ssd {
     uint64_t borrow_count;
     uint64_t emergency_gc_count; // host write 전에 강제로 foreground GC를 수행한 횟수
 
+    /* non-FDP Hot/Cold line-pool configuration */
+    uint32_t hot_pool_percent;
+    uint32_t initial_hot_line_count;
+    uint32_t initial_cold_line_count;
+
     /* non-FDP V4: LPN별 time window frequency와 actual erase event */
     LpnMeta *lpn_meta;
     uint64_t frequency_window_ns;
