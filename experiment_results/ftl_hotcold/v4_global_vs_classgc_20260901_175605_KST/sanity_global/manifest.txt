@@ -1,0 +1,12 @@
+branch=hotcold/v4
+commit=032d29b83e3906593ef9f79e5d2739bdab27ef5e
+run_name=sanity-global
+runtime=300
+FEMU_HOT_POOL_PERCENT=20
+FEMU_FREQUENCY_WINDOW_WRITES=4096
+FEMU_HOT_WRITES_PER_WINDOW=4
+FEMU_COLD_WRITES_PER_WINDOW=1
+FEMU_ERASE_EVENT_THRESHOLD=1
+precondition=6GiB sequential write
+reset=nvme opcode 0xef cdw10=5
+fio=randwrite size=5G bs=16k iodepth=128 numjobs=32 zipf=0.99 seed=20260824 runtime=300

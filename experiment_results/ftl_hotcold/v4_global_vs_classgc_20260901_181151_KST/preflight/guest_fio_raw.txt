@@ -1,0 +1,8 @@
+Warning: Permanently added '[127.0.0.1]:8080' (ED25519) to the list of known hosts.
+SUDO_N=PASS
+6442450944
+fio-3.16
+NVMe command result:00000000
+PREFLIGHT=PASS
+Warning: Permanently added '[127.0.0.1]:8080' (ED25519) to the list of known hosts.
+Connection to 127.0.0.1 closed by remote host.

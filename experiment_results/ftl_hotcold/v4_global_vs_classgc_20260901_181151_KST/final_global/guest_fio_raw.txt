@@ -1,0 +1,70 @@
+Warning: Permanently added '[127.0.0.1]:8080' (ED25519) to the list of known hosts.
+precondition: (g=0): rw=write, bs=(R) 1024KiB-1024KiB, (W) 1024KiB-1024KiB, (T) 1024KiB-1024KiB, ioengine=libaio, iodepth=32
+fio-3.16
+Starting 1 process
+
+precondition: (groupid=0, jobs=1): err= 0: pid=1065: Tue Sep  1 09:27:26 2026
+  write: IOPS=260, BW=261MiB/s (273MB/s)(6144MiB/23575msec); 0 zone resets
+    slat (usec): min=36, max=30496, avg=174.02, stdev=801.46
+    clat (usec): min=688, max=447992, avg=122560.35, stdev=50062.13
+     lat (msec): min=10, max=448, avg=122.74, stdev=50.10
+    clat percentiles (msec):
+     |  1.00th=[   23],  5.00th=[   34], 10.00th=[   62], 20.00th=[   83],
+     | 30.00th=[   96], 40.00th=[  107], 50.00th=[  118], 60.00th=[  136],
+     | 70.00th=[  153], 80.00th=[  165], 90.00th=[  182], 95.00th=[  201],
+     | 99.00th=[  275], 99.50th=[  288], 99.90th=[  326], 99.95th=[  347],
+     | 99.99th=[  447]
+   bw (  KiB/s): min=126976, max=569344, per=99.58%, avg=265751.15, stdev=91324.49, samples=47
+   iops        : min=  124, max=  556, avg=259.34, stdev=89.26, samples=47
+  lat (usec)   : 750=0.02%
+  lat (msec)   : 20=0.75%, 50=6.33%, 100=27.86%, 250=63.36%, 500=1.68%
+  cpu          : usr=3.46%, sys=2.63%, ctx=602, majf=0, minf=13
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.3%, 32=99.5%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.1%, 64=0.0%, >=64=0.0%
+     issued rwts: total=0,6144,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=32
+
+Run status group 0 (all jobs):
+  WRITE: bw=261MiB/s (273MB/s), 261MiB/s-261MiB/s (273MB/s-273MB/s), io=6144MiB (6442MB), run=23575-23575msec
+
+Disk stats (read/write):
+  nvme0n1: ios=51/6305, merge=0/0, ticks=3/750027, in_queue=737232, util=99.04%
+NVMe command result:00000000
+final-global: (g=0): rw=randwrite, bs=(R) 16.0KiB-16.0KiB, (W) 16.0KiB-16.0KiB, (T) 16.0KiB-16.0KiB, ioengine=libaio, iodepth=128
+...
+fio-3.16
+Starting 32 processes
+
+final-global: (groupid=0, jobs=32): err= 0: pid=1078: Tue Sep  1 10:27:28 2026
+  write: IOPS=9240, BW=144MiB/s (151MB/s)(508GiB/3600480msec); 0 zone resets
+    slat (nsec): min=1419, max=637162k, avg=1118743.49, stdev=6314635.07
+    clat (usec): min=635, max=2572.3k, avg=442120.49, stdev=148571.09
+     lat (usec): min=639, max=2572.3k, avg=443239.94, stdev=148806.11
+    clat percentiles (msec):
+     |  1.00th=[  148],  5.00th=[  220], 10.00th=[  264], 20.00th=[  317],
+     | 30.00th=[  359], 40.00th=[  397], 50.00th=[  435], 60.00th=[  468],
+     | 70.00th=[  510], 80.00th=[  558], 90.00th=[  634], 95.00th=[  701],
+     | 99.00th=[  835], 99.50th=[  885], 99.90th=[ 1020], 99.95th=[ 1116],
+     | 99.99th=[ 1888]
+   bw (  KiB/s): min= 3031, max=683396, per=99.92%, avg=147730.89, stdev=1464.58, samples=230356
+   iops        : min=  177, max=42710, avg=9230.00, stdev=91.56, samples=230356
+  lat (usec)   : 750=0.01%, 1000=0.01%
+  lat (msec)   : 2=0.01%, 4=0.01%, 10=0.01%, 20=0.01%, 50=0.04%
+  lat (msec)   : 100=0.19%, 250=8.19%, 500=59.22%, 750=29.63%, 1000=2.60%
+  lat (msec)   : 2000=0.11%, >=2000=0.01%
+  cpu          : usr=0.84%, sys=1.50%, ctx=21699665, majf=0, minf=353
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, >=64=100.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.1%
+     issued rwts: total=0,33271089,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=128
+
+Run status group 0 (all jobs):
+  WRITE: bw=144MiB/s (151MB/s), 144MiB/s-144MiB/s (151MB/s-151MB/s), io=508GiB (545GB), run=3600480-3600480msec
+
+Disk stats (read/write):
+  nvme0n1: ios=153/33270361, merge=0/0, ticks=11/1597961306, in_queue=1531442836, util=100.00%
+NVMe command result:00000000
+Warning: Permanently added '[127.0.0.1]:8080' (ED25519) to the list of known hosts.
+Connection to 127.0.0.1 closed by remote host.

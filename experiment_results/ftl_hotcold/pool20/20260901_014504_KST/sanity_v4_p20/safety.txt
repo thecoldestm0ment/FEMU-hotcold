@@ -1,0 +1,13 @@
+ROOT_SOURCE=/dev/sda2
+NAME           SIZE TYPE MOUNTPOINT
+fd0            4096 disk 
+loop0      57626624 loop /snap/core18/1880
+loop1      31334400 loop /snap/snapd/8542
+loop2      74735616 loop /snap/lxd/16099
+sda     85899345920 disk 
+├─sda1      1048576 part 
+└─sda2  85896200192 part /
+nvme0n1  6442450944 disk 
+TARGET_BYTES=6442450944
+SAFETY=PASS
+fio-3.16

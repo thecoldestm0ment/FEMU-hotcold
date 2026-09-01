@@ -1,0 +1,6 @@
+version,pool,seed,waf,gc_page_writes_per_host,average_gc_copy,gc_count,normalized_gc_count_per_million_host_writes,iops,hot_write_ratio,borrow_count,counter_invariant
+baseline,none,20260824,7.990327,6.990327,14335.056199,57919,487.638635,8224,NA,NA,PASS
+v1_t4096_p50_historical,50:50,20260824,6.973143,5.973143,14036.066174,58074,425.556736,9464,0.152191,10,PASS
+v1_t4096_p20,20:80,20260824,6.971951,5.971951,14035.589938,57923,425.486,9452,0.152431,4,PASS
+v4_p20,20:80,20260824,7.043587,6.043587,14059.526150,57744,429.857,9327,0.272770,4,PASS
+

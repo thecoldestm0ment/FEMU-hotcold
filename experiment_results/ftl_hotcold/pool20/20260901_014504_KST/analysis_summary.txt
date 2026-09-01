@@ -1,0 +1,37 @@
+Scope: one seed (20260824). This is an engineering comparison, not a statistical claim.
+
+V1-P20 vs baseline:
+- WAF: 7.990327 -> 6.971951 (-12.7451%)
+- normalized GC frequency: 487.639 -> 425.486 per million Host pages
+- IOPS: 8224 -> 9452 (+14.93%)
+
+V4-P20 vs baseline:
+- WAF: 7.990327 -> 7.043587 (-11.8486%)
+- normalized GC frequency: 487.639 -> 429.857 per million Host pages
+- IOPS: 8224 -> 9327 (+13.41%)
+
+V4-P20 vs V1-P20 (classifier design effect, not erase-feedback-only effect):
+- WAF: 6.971951 -> 7.043587 (+1.0275%; V4 worse)
+- average GC copy: 14035.590 -> 14059.526 (+0.1705%)
+- normalized GC frequency: 425.486 -> 429.857 (+1.0273%)
+- IOPS: 9452 -> 9327 (-1.3225%)
+- Host Hot ratio: 15.2431% -> 27.2770%
+- GC copies routed Hot: 0.7646% -> 15.8632%
+- classification transition rate: 11.5609% -> 20.5298%
+
+V4 mechanism coverage:
+- Mid-frequency erase-feedback decisions: 18,400,608 (13.6978% of Host writes)
+- Erase-signal HOT: 16,163,345 (87.8414% of mid-frequency decisions)
+- Erase-signal COLD: 2,237,263 (12.1586% of mid-frequency decisions)
+
+Pool-ratio observation:
+- Both new runs initialized 25 Hot / 103 Cold lines and 24 / 102 free lines after WP allocation.
+- Both completed with cold_pool_empty_count=4 and borrow_count=4; no emergency GC.
+- Historical V1-P50 had borrow_count=10, while V1-P20 had 4.
+- V1-P20 WAF differs from historical V1-P50 by only -0.0171%. Because classifier-reset semantics differ, this is descriptive and does not isolate the pool-ratio effect.
+
+Interpretation:
+- 20:80 operated correctly and reduced observed Cold-pool borrowing relative to the historical 50:50 run.
+- V4's time-window + erase-feedback design was active, but it classified substantially more writes as Hot and moved far more GC pages through the Hot path.
+- In this seed, average copy cost and normalized GC frequency both increased, so V4 did not improve on the simpler V1-P20 classifier.
+- The valid conclusion is classifier-design comparison; erase feedback alone was not isolated.

@@ -1,0 +1,36 @@
+experiment_name=V1-P20-T4096
+run_id=20260901_014504_KST
+status=VALID
+branch=hotcold/v1-p20
+git_commit=a2adff42934f166a6bb092d58bbe98a2aa478ac6
+date_kst=2026-09-01
+
+FEMU_HOT_POOL_PERCENT=20
+FEMU_HOT_REWRITE_WINDOW=4096
+initial_hot_lines=25
+initial_cold_lines=103
+free_hot_lines_after_wp_init=24
+free_cold_lines_after_wp_init=102
+
+exposed_device=/dev/nvme0n1
+exposed_size_bytes=6442450944
+raw_nand_size_gib=8
+sector_size=512
+sectors_per_page=8
+pages_per_block=256
+blocks_per_plane=128
+planes_per_lun=1
+luns_per_channel=8
+channels=8
+gc_threshold_percent=75
+gc_threshold_high_percent=95
+
+fio_version=fio-3.16
+preconditioning=sudo fio --name=fill --filename=/dev/nvme0n1 --direct=1 --ioengine=libaio --rw=write --bs=1M --iodepth=32 --numjobs=1 --size=6G --group_reporting=1
+measurement_reset=cdw10=5; print preconditioning stats, reset accounting and classifier metadata, preserve mapping/page/line/write-pointer state
+workload=sudo fio --name=final --filename=/dev/nvme0n1 --direct=1 --time_based=1 --runtime=3600 --ioengine=libaio --rw=randwrite --iodepth=128 --numjobs=32 --size=5G --bs=16k --random_distribution=zipf:0.99 --randrepeat=1 --randseed=20260824 --group_reporting=1
+offset=none
+marker=none
+intermediate_snapshot=none
+fresh_femu_process=yes
+

@@ -1,0 +1,70 @@
+Warning: Permanently added '[127.0.0.1]:8080' (ED25519) to the list of known hosts.
+precondition: (g=0): rw=write, bs=(R) 1024KiB-1024KiB, (W) 1024KiB-1024KiB, (T) 1024KiB-1024KiB, ioengine=libaio, iodepth=32
+fio-3.16
+Starting 1 process
+
+precondition: (groupid=0, jobs=1): err= 0: pid=1064: Tue Sep  1 09:20:33 2026
+  write: IOPS=493, BW=493MiB/s (517MB/s)(6144MiB/12452msec); 0 zone resets
+    slat (usec): min=42, max=24626, avg=136.68, stdev=338.71
+    clat (msec): min=4, max=397, avg=64.70, stdev=45.10
+     lat (msec): min=4, max=398, avg=64.83, stdev=45.10
+    clat percentiles (msec):
+     |  1.00th=[   18],  5.00th=[   23], 10.00th=[   26], 20.00th=[   31],
+     | 30.00th=[   39], 40.00th=[   46], 50.00th=[   55], 60.00th=[   63],
+     | 70.00th=[   72], 80.00th=[   86], 90.00th=[  114], 95.00th=[  150],
+     | 99.00th=[  239], 99.50th=[  296], 99.90th=[  296], 99.95th=[  330],
+     | 99.99th=[  397]
+   bw (  KiB/s): min=165556, max=1161216, per=96.59%, avg=488013.79, stdev=225607.97, samples=24
+   iops        : min=  161, max= 1134, avg=476.46, stdev=220.34, samples=24
+  lat (msec)   : 10=0.20%, 20=1.66%, 50=43.47%, 100=40.41%, 250=13.41%
+  lat (msec)   : 500=0.85%
+  cpu          : usr=6.15%, sys=2.11%, ctx=678, majf=0, minf=13
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.3%, 32=99.5%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.1%, 64=0.0%, >=64=0.0%
+     issued rwts: total=0,6144,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=32
+
+Run status group 0 (all jobs):
+  WRITE: bw=493MiB/s (517MB/s), 493MiB/s-493MiB/s (517MB/s-517MB/s), io=6144MiB (6442MB), run=12452-12452msec
+
+Disk stats (read/write):
+  nvme0n1: ios=51/6020, merge=0/0, ticks=4/385573, in_queue=373772, util=98.95%
+NVMe command result:00000000
+sanity-classgc: (g=0): rw=randwrite, bs=(R) 16.0KiB-16.0KiB, (W) 16.0KiB-16.0KiB, (T) 16.0KiB-16.0KiB, ioengine=libaio, iodepth=128
+...
+fio-3.16
+Starting 32 processes
+
+sanity-classgc: (groupid=0, jobs=32): err= 0: pid=1079: Tue Sep  1 09:25:35 2026
+  write: IOPS=22.3k, BW=349MiB/s (366MB/s)(102GiB/300266msec); 0 zone resets
+    slat (nsec): min=1876, max=955737k, avg=494699.98, stdev=4495725.80
+    clat (usec): min=948, max=1327.1k, avg=182975.44, stdev=87663.38
+     lat (usec): min=954, max=1327.1k, avg=183470.94, stdev=87813.84
+    clat percentiles (msec):
+     |  1.00th=[   43],  5.00th=[   60], 10.00th=[   91], 20.00th=[  108],
+     | 30.00th=[  138], 40.00th=[  150], 50.00th=[  180], 60.00th=[  190],
+     | 70.00th=[  224], 80.00th=[  241], 90.00th=[  284], 95.00th=[  321],
+     | 99.00th=[  409], 99.50th=[  485], 99.90th=[  953], 99.95th=[ 1062],
+     | 99.99th=[ 1167]
+   bw (  KiB/s): min=17975, max=1110874, per=99.98%, avg=357000.02, stdev=3360.65, samples=19148
+   iops        : min= 1113, max=69420, avg=22307.70, stdev=210.08, samples=19148
+  lat (usec)   : 1000=0.01%
+  lat (msec)   : 2=0.01%, 4=0.01%, 10=0.03%, 20=0.10%, 50=2.91%
+  lat (msec)   : 100=13.94%, 250=65.58%, 500=16.98%, 750=0.21%, 1000=0.18%
+  lat (msec)   : 2000=0.08%
+  cpu          : usr=1.13%, sys=2.23%, ctx=2677672, majf=0, minf=445
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, >=64=100.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.1%
+     issued rwts: total=0,6701326,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=128
+
+Run status group 0 (all jobs):
+  WRITE: bw=349MiB/s (366MB/s), 349MiB/s-349MiB/s (366MB/s-366MB/s), io=102GiB (110GB), run=300266-300266msec
+
+Disk stats (read/write):
+  nvme0n1: ios=51/6697760, merge=0/0, ticks=39/1165875592, in_queue=1152490712, util=100.00%
+NVMe command result:00000000
+Warning: Permanently added '[127.0.0.1]:8080' (ED25519) to the list of known hosts.
+Connection to 127.0.0.1 closed by remote host.
