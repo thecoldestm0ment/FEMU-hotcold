@@ -1437,12 +1437,21 @@ static LineClass select_gc_class_by_pressure(struct ssd *ssd)
     uint32_t cold_total = 0;
     uint32_t hot_used;
     uint32_t cold_used;
+    bool ownership_valid;
 
     ssd_validate_free_line_counts(ssd);
-    ftl_assert(ssd_get_current_line_totals(ssd, &hot_total, &cold_total));
-    ftl_assert(hot_total > 0 && cold_total > 0);
-    ftl_assert((uint32_t)lm->free_hot_line_cnt <= hot_total);
-    ftl_assert((uint32_t)lm->free_cold_line_cnt <= cold_total);
+    ownership_valid =
+        ssd_get_current_line_totals(ssd, &hot_total, &cold_total);
+    if (!ownership_valid || hot_total == 0 || cold_total == 0 ||
+        lm->free_hot_line_cnt < 0 || lm->free_cold_line_cnt < 0 ||
+        (uint32_t)lm->free_hot_line_cnt > hot_total ||
+        (uint32_t)lm->free_cold_line_cnt > cold_total) {
+        ftl_err("invalid GC class ownership: total=%d hot=%u cold=%u "
+                "free_hot=%d free_cold=%d\n",
+                lm->tt_lines, hot_total, cold_total,
+                lm->free_hot_line_cnt, lm->free_cold_line_cnt);
+        abort();
+    }
     hot_used = hot_total - lm->free_hot_line_cnt;
     cold_used = cold_total - lm->free_cold_line_cnt;
 
