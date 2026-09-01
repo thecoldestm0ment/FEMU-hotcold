@@ -2,7 +2,7 @@
 #include "ftl-internal.h"
 
 //#define FEMU_DEBUG_FTL
-/* V4 defaults are provisional experiment settings, not tuned optima. */
+/* 환경 변수로 재정의 가능한 Hot/Cold classifier 기본값 */
 #define FREQUENCY_WINDOW_WRITES_DEFAULT 4096ULL
 #define HOT_WRITES_PER_WINDOW_DEFAULT 4U
 #define COLD_WRITES_PER_WINDOW_DEFAULT 1U
@@ -13,16 +13,6 @@
 #define COLD_NORMAL_INVALID_PERCENT 30U
 #define COLD_FORCED_INVALID_PERCENT 25U
 
-/*
- * 기본 bbssd(non-FDP) FTL 읽기 순서
- *   ssd_init() -> ftl_thread() -> ssd_read()/ssd_write()/ssd_trim()
- *                              -> should_gc()/do_gc()
- *
- * LPN은 호스트의 논리 페이지 번호, PPA는 NAND의 물리 페이지 주소다.
- * maptbl은 LPN->PPA, rmap은 PPA->LPN 변환에 사용한다.
- * line은 모든 channel/LUN에서 같은 block 번호를 묶은 GC 단위다.
- * 주소/매핑 helper는 ftl-internal.h, NAND 지연 계산은 ftl-media.c에 있다.
- */
 static void *ftl_thread(void *arg);
 
 /* FDP 함수 전방 선언 */
@@ -134,11 +124,7 @@ void ssd_reset_stats(struct ssd *ssd)
     ssd->global_emergency_fallback_count = 0;
 }
 
-/*
- * 새 측정 구간은 preconditioning의 접근 패턴을 상속하지 않는다.
- * NAND mapping, page/line 상태는 그대로 두고 통계와 classifier 관찰 이력만
- * 초기화하므로 다음 host write는 각 LPN의 새 window를 시작한다.
- */
+/* 물리 FTL 상태를 보존하고 측정 통계와 classifier 이력만 초기화한다. */
 void ssd_reset_measurement(struct ssd *ssd)
 {
     ssd_reset_stats(ssd);
@@ -156,10 +142,7 @@ void ssd_reset_measurement(struct ssd *ssd)
     }
 }
 
-/*
- * 현재까지 누적된 non-FDP page-write 통계와 WAF를 출력한다.
- * FEMU_RESET_ACCT admin command가 실험 구간 끝에서 이 함수를 호출한다.
- */
+/* 누적된 non-FDP write/GC 통계와 WAF를 출력한다. */
 void ssd_print_stats(struct ssd *ssd)
 {
     char waf[32];
@@ -447,13 +430,7 @@ static inline void victim_ru_set_pos(void *a, size_t pos)
     ((FemuReclaimUnit *)a)->pos = pos;
 }
 
-/*
- * PI type RUH는 full RU를 per-RG(global) victim pqueue와 자체 per-RUH
- * victim pqueue 양쪽에 동시에 보관한다. 두 heap은 각 RU의 index를 독립적으로
- * 추적해야 하므로, per-RUH queue는 이 callback을 통해 ruh_pos를 사용한다.
- * 두 heap이 하나의 `pos` field를 공유하면(issue #189) 나중에 접근한 heap이
- * 손상되고 victim_ru_get_pri(NULL)에서 crash가 발생한다.
- */
+/* Global heap과 per-RUH heap은 서로 다른 position field를 사용한다. */
 static inline size_t victim_ru_get_pos_ruh(void *a)
 {
     return ((FemuReclaimUnit *)a)->ruh_pos;
@@ -993,7 +970,7 @@ void ssd_init(FemuCtrl *n)
     /* data-remanence 실험용 환경 변수를 한 번만 읽는다(debug 전용, 기본 off). */
     exp_load_cfg();
 
-    /* V1 통계는 SSD 초기화부터 누적한다. */
+    /* 통계는 SSD 초기화 시점부터 누적한다. */
     ssd_reset_stats(ssd);
 
     ssd_init_params(spp, n);
@@ -1387,9 +1364,7 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
     /* 새 PPA를 사용했으므로 write pointer 이동 */
     ssd_advance_write_pointer(ssd, wpp);
 
-    /*
-     * Phase 1 수정
-     */
+    /* GC relocation은 Host write가 아닌 NAND/GC write로 집계한다. */
     ssd->gc_page_writes++;
     ssd->nand_page_writes++;
 
@@ -1401,7 +1376,7 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
         ssd_advance_status(ssd, &new_ppa, &gcw);
     }
 
-    /* channel의 gc_endtime 갱신 코드(현재 비활성화) */
+    /* Channel 단위 GC 완료 시각은 모델링하지 않는다. */
 #if 0
     new_ch = get_ch(ssd, &new_ppa);
     new_ch->gc_endtime = new_ch->next_ch_avail_time;
@@ -1413,7 +1388,7 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
     return 0;
 }
 
-/* 선택이 끝난 victim을 기존 global PQ에서 한 번만 제거한다. */
+/* 선택한 victim을 shared queue에서 한 번만 제거한다. */
 static struct line *take_victim_line(struct ssd *ssd, struct line *line)
 {
     struct line_mgmt *lm = &ssd->lm;
@@ -1518,7 +1493,7 @@ static struct line *select_class_victim(struct ssd *ssd,
     return take_victim_line(ssd, best);
 }
 
-/* forced class selector도 못 고를 때만 기존 global greedy로 progress를 보장한다. */
+/* Class selector가 진행할 수 없을 때 shared greedy queue를 사용한다. */
 static struct line *select_global_forced_victim(struct ssd *ssd)
 {
     struct line *line = pqueue_peek(ssd->lm.victim_line_pq);
@@ -1916,9 +1891,7 @@ static uint64_t ssd_trim(struct ssd *ssd, NvmeRequest *req)
     return 0;  /* 이 모델에서 TRIM 자체의 NAND 지연은 0 */
 }
 
-/*
- * ========== FDP FTL 구현 ==========
- */
+/* ========== FDP FTL ========== */
 
 /*
  * get_next_free_ru - reclaim group의 free list에서 RU 하나를 꺼낸다.
@@ -2234,13 +2207,7 @@ static void mark_page_invalid_fdp(struct ssd *ssd, struct ppa *ppa)
         if (ru->pos) {
             pqueue_change_priority(rm->victim_ru_pq, ru->vpc, ru);
         }
-        /*
-         * per-RUH victim queue는 GC_NOISY_RUH_CUSTOM만 참조하므로 이 queue의
-         * 정렬도 함께 맞춘다. per-RUH heap은 ruh_pos로 indexing하므로 global
-         * queue의 pos와 충돌하지 않는다(issue #189). 이 strategy에서는 모든
-         * per-RUH pop/remove마다 ruh_pos를 reset하므로 ruh_pos != 0을
-         * "per-RUH queue에 들어 있음"을 나타내는 값으로 사용할 수 있다.
-         */
+        /* per-RUH heap에 등록된 RU의 priority도 함께 갱신한다. */
         if (rm->mgmt_type == GC_NOISY_RUH_CUSTOM && ru->ruh_pos &&
             ru->ruh && ru->ruh->ru_mgmt) {
             pqueue_change_priority(ru->ruh->ru_mgmt->victim_ru_pq, ru->vpc, ru);
@@ -2250,12 +2217,7 @@ static void mark_page_invalid_fdp(struct ssd *ssd, struct ppa *ppa)
             rm->full_ru_cnt--;
             pqueue_insert(rm->victim_ru_pq, ru);
             rm->victim_ru_cnt++;
-            /*
-             * per-RUH queue를 사용하는 GC_NOISY_RUH_CUSTOM strategy에서만
-             * 같은 RU를 이 queue에도 넣는다. GREEDY/RAND는 per-RUH queue에서
-             * pop하지 않으므로 이중 등록하면 global pop 뒤 stale entry가 남아
-             * 나중에 heap을 손상시킨다(issue #189).
-             */
+            /* per-RUH queue를 소비하는 strategy에서만 RU를 이중 등록한다. */
             if (rm->mgmt_type == GC_NOISY_RUH_CUSTOM &&
                 ru->ruh && ru->ruh->ru_mgmt) {
                pqueue_insert(ru->ruh->ru_mgmt->victim_ru_pq, ru);
@@ -2357,14 +2319,7 @@ static FemuReclaimUnit *select_victim_ru_from_ruh(struct ssd *ssd,
 
     victim_ru = pqueue_pop(ru_mgmt->victim_ru_pq);
     if (victim_ru) {
-        /*
-         * pqueue_pop은 pop한 element에 저장된 index를 지우지 않는다. 따라서
-         * ruh_pos가 실제로 "per-RUH queue에 없음"을 나타내도록 reset한다
-         * (NOISY 경로와 동일한 규칙). 그렇지 않으면 이후 change_priority나
-         * insert가 stale per-RUH index를 사용해 issue #189 유형의 버그를 만든다.
-         * 현재 이 경로에서 per-RUH queue를 채우는 strategy는 없지만 향후 사용을
-         * 고려해 일관성을 보장한다.
-         */
+        /* pqueue_pop이 저장된 index를 지우지 않으므로 직접 초기화한다. */
         victim_ru->ruh_pos = 0;
         ru_mgmt->victim_ru_cnt--;
     }
@@ -3278,11 +3233,7 @@ static void femu_fdp_ssd_init_ru_handles(FemuCtrl *n, struct ssd *ssd)
             ssd->ruhs[i].ru_mgmt->custom_gc_threshold = 0;
             QTAILQ_INIT(&ssd->ruhs[i].ru_mgmt->free_ru_list);
             QTAILQ_INIT(&ssd->ruhs[i].ru_mgmt->full_ru_list);
-            /*
-             * Per-RUH queue는 ruh_pos로 indexing하므로
-             * (victim_ru_*_pos_ruh 참고) per-RG queue의 pos와 충돌하지 않는다
-             * (issue #189).
-             */
+            /* per-RUH heap은 global heap과 독립된 ruh_pos를 사용한다. */
             ssd->ruhs[i].ru_mgmt->victim_ru_pq =
                 pqueue_init(ssd->rg[0].tt_nru, victim_ru_cmp_pri,
                             victim_ru_get_pri, victim_ru_set_pri,

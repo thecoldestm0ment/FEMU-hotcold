@@ -382,7 +382,7 @@ struct ssd {
     uint32_t initial_hot_line_count;
     uint32_t initial_cold_line_count;
 
-    /* non-FDP V4: LPN별 logical window frequency와 actual erase event */
+    /* non-FDP Hot/Cold classifier metadata */
     LpnMeta *lpn_meta;
     uint64_t host_write_seq;
     uint64_t frequency_window_writes;
