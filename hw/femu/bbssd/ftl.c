@@ -8,6 +8,10 @@
 #define COLD_WRITES_PER_WINDOW_DEFAULT 1U
 #define ERASE_EVENT_THRESHOLD_DEFAULT 1U
 #define HOT_POOL_PERCENT_DEFAULT 50U
+#define HOT_NORMAL_INVALID_DIVISOR 8U
+#define INVALID_PERCENT_SCALE 100U
+#define COLD_NORMAL_INVALID_PERCENT 30U
+#define COLD_FORCED_INVALID_PERCENT 25U
 
 /*
  * 기본 bbssd(non-FDP) FTL 읽기 순서
@@ -99,6 +103,14 @@ void ssd_reset_stats(struct ssd *ssd)
     ssd->cold_pool_empty_count = 0;
     ssd->borrow_count = 0;
     ssd->emergency_gc_count = 0;
+    ssd->hot_victim_gc_count = 0;
+    ssd->cold_victim_gc_count = 0;
+    ssd->hot_victim_gc_page_copies = 0;
+    ssd->cold_victim_gc_page_copies = 0;
+    ssd->hot_victim_invalid_pages = 0;
+    ssd->cold_victim_invalid_pages = 0;
+    ssd->opposite_forced_gc_count = 0;
+    ssd->global_emergency_fallback_count = 0;
 }
 
 /*
@@ -116,6 +128,9 @@ void ssd_reset_measurement(struct ssd *ssd)
             memset(ssd->lpn_meta, 0,
                    sizeof(*ssd->lpn_meta) * (size_t)ssd->sp.tt_pgs);
         }
+        for (int i = 0; i < ssd->lm.tt_lines; i++) {
+            ssd->lm.lines[i].last_host_write_seq = 0;
+        }
     }
 }
 
@@ -128,6 +143,10 @@ void ssd_print_stats(struct ssd *ssd)
     char waf[32];
     char average_gc_copy[32];
     char hot_write_ratio[32];
+    char average_hot_gc_copy[32];
+    char average_cold_gc_copy[32];
+    char average_hot_victim_invalid_ratio[32];
+    char average_cold_victim_invalid_ratio[32];
     bool counters_valid =
         ssd->nand_page_writes ==
         ssd->host_page_writes + ssd->gc_page_writes &&
@@ -136,6 +155,10 @@ void ssd_print_stats(struct ssd *ssd)
         ssd->host_page_writes &&
         ssd->gc_hot_writes + ssd->gc_cold_writes ==
         ssd->gc_page_writes &&
+        ssd->hot_victim_gc_count + ssd->cold_victim_gc_count ==
+        ssd->gc_count &&
+        ssd->hot_victim_gc_page_copies +
+        ssd->cold_victim_gc_page_copies == ssd->gc_page_writes &&
         ssd->host_hot_writes ==
         ssd->host_hot_high_frequency_writes +
         ssd->host_hot_erase_signal_writes &&
@@ -172,7 +195,37 @@ void ssd_print_stats(struct ssd *ssd)
                  (double)ssd->host_page_writes);
     }
 
-    ftl_log("BBSSD-STATS version=V4 hot_pool_percent=%u"
+    if (ssd->hot_victim_gc_count == 0) {
+        snprintf(average_hot_gc_copy, sizeof(average_hot_gc_copy), "N/A");
+        snprintf(average_hot_victim_invalid_ratio,
+                 sizeof(average_hot_victim_invalid_ratio), "N/A");
+    } else {
+        snprintf(average_hot_gc_copy, sizeof(average_hot_gc_copy), "%.6f",
+                 (double)ssd->hot_victim_gc_page_copies /
+                 (double)ssd->hot_victim_gc_count);
+        snprintf(average_hot_victim_invalid_ratio,
+                 sizeof(average_hot_victim_invalid_ratio), "%.6f",
+                 (double)ssd->hot_victim_invalid_pages /
+                 ((double)ssd->hot_victim_gc_count *
+                  (double)ssd->sp.pgs_per_line));
+    }
+
+    if (ssd->cold_victim_gc_count == 0) {
+        snprintf(average_cold_gc_copy, sizeof(average_cold_gc_copy), "N/A");
+        snprintf(average_cold_victim_invalid_ratio,
+                 sizeof(average_cold_victim_invalid_ratio), "N/A");
+    } else {
+        snprintf(average_cold_gc_copy, sizeof(average_cold_gc_copy), "%.6f",
+                 (double)ssd->cold_victim_gc_page_copies /
+                 (double)ssd->cold_victim_gc_count);
+        snprintf(average_cold_victim_invalid_ratio,
+                 sizeof(average_cold_victim_invalid_ratio), "%.6f",
+                 (double)ssd->cold_victim_invalid_pages /
+                 ((double)ssd->cold_victim_gc_count *
+                  (double)ssd->sp.pgs_per_line));
+    }
+
+    ftl_log("BBSSD-STATS version=V4-ClassGC hot_pool_percent=%u"
             " initial_hot_lines=%u"
             " initial_cold_lines=%u"
             " frequency_window_writes=%" PRIu64
@@ -206,6 +259,16 @@ void ssd_print_stats(struct ssd *ssd)
             " cold_pool_empty_count=%" PRIu64
             " borrow_count=%" PRIu64
             " emergency_gc_count=%" PRIu64
+            " hot_victim_gc_count=%" PRIu64
+            " cold_victim_gc_count=%" PRIu64
+            " hot_victim_gc_page_copies=%" PRIu64
+            " cold_victim_gc_page_copies=%" PRIu64
+            " avg_hot_gc_copy=%s"
+            " avg_cold_gc_copy=%s"
+            " avg_hot_victim_invalid_ratio=%s"
+            " avg_cold_victim_invalid_ratio=%s"
+            " opposite_forced_gc_count=%" PRIu64
+            " global_emergency_fallback_count=%" PRIu64
             " counter_invariant=%s\n",
             ssd->hot_pool_percent, ssd->initial_hot_line_count,
             ssd->initial_cold_line_count, ssd->frequency_window_writes,
@@ -227,6 +290,14 @@ void ssd_print_stats(struct ssd *ssd)
             ssd->cold_to_hot_count, ssd->hot_to_cold_count,
             ssd->hot_pool_empty_count, ssd->cold_pool_empty_count,
             ssd->borrow_count, ssd->emergency_gc_count,
+            ssd->hot_victim_gc_count, ssd->cold_victim_gc_count,
+            ssd->hot_victim_gc_page_copies,
+            ssd->cold_victim_gc_page_copies,
+            average_hot_gc_copy, average_cold_gc_copy,
+            average_hot_victim_invalid_ratio,
+            average_cold_victim_invalid_ratio,
+            ssd->opposite_forced_gc_count,
+            ssd->global_emergency_fallback_count,
             counters_valid ? "PASS" : "FAIL");
 }
 
@@ -406,6 +477,7 @@ static void ssd_init_lines(struct ssd *ssd)
         line->vpc = 0;
         line->pos = 0;
         line->data_class = LINE_CLASS_NONE;
+        line->last_host_write_seq = 0;
         /* 모든 line을 free line으로 초기화 */
         QTAILQ_INSERT_TAIL(&lm->free_line_list, line, entry);
         lm->free_line_cnt++;
@@ -1308,30 +1380,121 @@ static uint64_t gc_write_page(struct ssd *ssd, struct ppa *old_ppa)
     return 0;
 }
 
-/*
- * victim priority queue에서 valid page 수가 적은 line을 고른다.
- * 일반 GC는 invalid page가 line의 1/8 미만이면 이동 비용 때문에 건너뛴다.
- */
-static struct line *select_victim_line(struct ssd *ssd, bool force)
+static bool line_is_active(struct ssd *ssd, struct line *line)
+{
+    return line == ssd->wp_hot.curline || line == ssd->wp_cold.curline;
+}
+
+/* 선택이 끝난 victim을 기존 global PQ에서 한 번만 제거한다. */
+static struct line *take_victim_line(struct ssd *ssd, struct line *line)
 {
     struct line_mgmt *lm = &ssd->lm;
-    struct line *victim_line = NULL;
 
-    victim_line = pqueue_peek(lm->victim_line_pq);
-    if (!victim_line) {
+    if (!line) {
         return NULL;
     }
 
-    if (!force && victim_line->ipc < ssd->sp.pgs_per_line / 8) {
-        return NULL;
-    }
-
-    pqueue_pop(lm->victim_line_pq);
-    victim_line->pos = 0;
+    ftl_assert(line->pos != 0 && lm->victim_line_cnt > 0);
+    pqueue_remove(lm->victim_line_pq, line);
+    line->pos = 0;
     lm->victim_line_cnt--;
+    return line;
+}
 
-    /* 이제 victim_line은 어떤 queue/list에도 속하지 않는다. */
-    return victim_line;
+/* borrowing으로 변경된 현재 class 크기를 기준으로 pressure를 비교한다. */
+static LineClass select_gc_class_by_pressure(struct ssd *ssd)
+{
+    struct line_mgmt *lm = &ssd->lm;
+    int hot_total = 0;
+    int cold_total = 0;
+    int hot_used;
+    int cold_used;
+
+    for (int i = 0; i < lm->tt_lines; i++) {
+        if (lm->lines[i].data_class == LINE_CLASS_HOT) {
+            hot_total++;
+        } else if (lm->lines[i].data_class == LINE_CLASS_COLD) {
+            cold_total++;
+        } else {
+            ftl_err("non-FDP line %d has no data class\n", i);
+            abort();
+        }
+    }
+
+    ssd_validate_free_line_counts(ssd);
+    ftl_assert(hot_total > 0 && cold_total > 0);
+    ftl_assert(lm->free_hot_line_cnt <= hot_total);
+    ftl_assert(lm->free_cold_line_cnt <= cold_total);
+    hot_used = hot_total - lm->free_hot_line_cnt;
+    cold_used = cold_total - lm->free_cold_line_cnt;
+
+    /* division 없이 hot_used/hot_total과 cold_used/cold_total을 비교한다. */
+    if ((uint64_t)hot_used * cold_total >=
+        (uint64_t)cold_used * hot_total) {
+        return LINE_CLASS_HOT;
+    }
+    return LINE_CLASS_COLD;
+}
+
+/* class 내 Hot greedy 또는 Cold age×invalid-ratio victim을 고른다. */
+static struct line *select_class_victim(struct ssd *ssd,
+                                        LineClass data_class, bool force)
+{
+    struct line_mgmt *lm = &ssd->lm;
+    struct line *best = NULL;
+    __uint128_t best_score = 0;
+
+    for (int i = 0; i < lm->tt_lines; i++) {
+        struct line *line = &lm->lines[i];
+
+        if (line->data_class != data_class || line->pos == 0 ||
+            line->ipc == 0 || line_is_active(ssd, line)) {
+            continue;
+        }
+
+        if (data_class == LINE_CLASS_HOT) {
+            if (!force &&
+                (uint64_t)line->ipc * HOT_NORMAL_INVALID_DIVISOR <
+                (uint64_t)ssd->sp.pgs_per_line) {
+                continue;
+            }
+            if (!best || line->ipc > best->ipc ||
+                (line->ipc == best->ipc && line->id < best->id)) {
+                best = line;
+            }
+        } else {
+            uint32_t threshold = force ? COLD_FORCED_INVALID_PERCENT :
+                                         COLD_NORMAL_INVALID_PERCENT;
+            uint64_t age;
+            __uint128_t score;
+
+            if ((uint64_t)line->ipc * INVALID_PERCENT_SCALE <
+                (uint64_t)ssd->sp.pgs_per_line * threshold) {
+                continue;
+            }
+            ftl_assert(line->last_host_write_seq <= ssd->host_write_seq);
+            age = line->last_host_write_seq == 0 ? ssd->host_write_seq :
+                  ssd->host_write_seq - line->last_host_write_seq;
+            score = (__uint128_t)age * (uint64_t)line->ipc;
+            if (!best || score > best_score ||
+                (score == best_score && line->ipc > best->ipc) ||
+                (score == best_score && line->ipc == best->ipc &&
+                 line->id < best->id)) {
+                best = line;
+                best_score = score;
+            }
+        }
+    }
+
+    return take_victim_line(ssd, best);
+}
+
+/* forced class selector도 못 고를 때만 기존 global greedy로 progress를 보장한다. */
+static struct line *select_global_forced_victim(struct ssd *ssd)
+{
+    struct line *line = pqueue_peek(ssd->lm.victim_line_pq);
+
+    return take_victim_line(ssd, line);
 }
 
 /* victim block을 훑으며 valid page만 새 위치로 복사한다. */
@@ -1364,6 +1527,7 @@ static void mark_line_free(struct ssd *ssd, struct ppa *ppa)
 
     line->ipc = 0;
     line->vpc = 0;
+    line->last_host_write_seq = 0;
 
     /* GC 후에도 line class를 유지해 같은 class pool로 반환한다. */
     if (line->data_class == LINE_CLASS_HOT) {
@@ -1391,13 +1555,39 @@ static int do_gc(struct ssd *ssd, bool force)
     struct ssdparams *spp = &ssd->sp;
     struct nand_lun *lunp;
     struct ppa ppa;
+    LineClass preferred_class;
+    LineClass other_class;
+    LineClass victim_class;
+    uint64_t gc_writes_before;
+    int victim_invalid_pages;
     int ch, lun;
 
-    victim_line = select_victim_line(ssd, force);
+    preferred_class = select_gc_class_by_pressure(ssd);
+    other_class = preferred_class == LINE_CLASS_HOT ?
+                  LINE_CLASS_COLD : LINE_CLASS_HOT;
+
+    victim_line = select_class_victim(ssd, preferred_class, force);
+    if (!victim_line) {
+        victim_line = select_class_victim(ssd, other_class, force);
+        if (victim_line && force) {
+            ssd->opposite_forced_gc_count++;
+        }
+    }
+    if (!victim_line && force) {
+        victim_line = select_global_forced_victim(ssd);
+        if (victim_line) {
+            ssd->global_emergency_fallback_count++;
+        }
+    }
     if (!victim_line) {
         return -1;
     }
 
+    victim_class = victim_line->data_class;
+    victim_invalid_pages = victim_line->ipc;
+    gc_writes_before = ssd->gc_page_writes;
+    ftl_assert(victim_class == LINE_CLASS_HOT ||
+               victim_class == LINE_CLASS_COLD);
     ssd->gc_count++;
     if (force) {
         ssd->emergency_gc_count++;
@@ -1432,6 +1622,19 @@ static int do_gc(struct ssd *ssd, bool force)
 
     /* erase가 끝난 line을 free 상태로 갱신 */
     mark_line_free(ssd, &ppa);
+
+    /* fallback 경로와 무관하게 victim의 실제 class로 기록한다. */
+    if (victim_class == LINE_CLASS_HOT) {
+        ssd->hot_victim_gc_count++;
+        ssd->hot_victim_invalid_pages += victim_invalid_pages;
+        ssd->hot_victim_gc_page_copies +=
+            ssd->gc_page_writes - gc_writes_before;
+    } else {
+        ssd->cold_victim_gc_count++;
+        ssd->cold_victim_invalid_pages += victim_invalid_pages;
+        ssd->cold_victim_gc_page_copies +=
+            ssd->gc_page_writes - gc_writes_before;
+    }
 
     return 0;
 }
@@ -1545,6 +1748,8 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         set_rmap_ent(ssd, lpn, &ppa);
 
         mark_page_valid(ssd, &ppa);
+        /* GC relocation이 아닌 Host write만 Cold victim의 age를 갱신한다. */
+        get_line(ssd, &ppa)->last_host_write_seq = ssd->host_write_seq;
         /* marker string이 있는 page만 log와 추적 대상에 포함 */
         if (femu_dbg_lpn_has_secret(ssd, lpn)) {
             exp_watch_lpn_add(lpn);

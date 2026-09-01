@@ -197,6 +197,8 @@ typedef struct line {
     size_t                  pos;
     /* non-FDP Hot/Cold pool class; FDP line은 NONE을 유지한다. */
     LineClass data_class;
+    /* GC relocation은 제외하고 Host write가 기록된 마지막 logical time */
+    uint64_t last_host_write_seq;
     /* FDP: owning reclaim unit (NULL in non-FDP mode) */
     FemuReclaimUnit *my_ru;
 } line;
@@ -364,6 +366,15 @@ struct ssd {
     uint64_t cold_pool_empty_count;
     uint64_t borrow_count;
     uint64_t emergency_gc_count; // host write 전에 강제로 foreground GC를 수행한 횟수
+    /* victim의 실제 class 기준 Class-aware GC 통계 */
+    uint64_t hot_victim_gc_count;
+    uint64_t cold_victim_gc_count;
+    uint64_t hot_victim_gc_page_copies;
+    uint64_t cold_victim_gc_page_copies;
+    uint64_t hot_victim_invalid_pages;
+    uint64_t cold_victim_invalid_pages;
+    uint64_t opposite_forced_gc_count;
+    uint64_t global_emergency_fallback_count;
 
     /* non-FDP Hot/Cold line-pool configuration */
     uint32_t hot_pool_percent;
