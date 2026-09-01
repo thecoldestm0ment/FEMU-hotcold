@@ -1,0 +1,2 @@
+[FEMU] FTL-Log: BBSSD-STATS version=BASELINE host_page_writes=117057944 nand_page_writes=935196254 gc_page_writes=818138310 block_erases=3652672 waf=7.989174 gc_count=57073 average_gc_copy=14334.944895 counter_invariant=PASS
+  write: IOPS=8127, BW=127MiB/s (133MB/s)(447GiB/3600693msec); 0 zone resets

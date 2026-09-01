@@ -1,0 +1,14 @@
+phase=final-baseline-v4-environment
+source=hotcold/base
+commit=c0237bb12f183d87ea1abf2bf52e92f900f6c587
+raw_nand_gib=8
+exposed_mib=6144
+op_percent=25
+gc_threshold_percent=75
+gc_threshold_high_percent=95
+precondition=6GiB sequential write
+workload=randwrite,size=5GiB,bs=16KiB,iodepth=128,numjobs=32,zipf=0.99,runtime=3600
+randrepeat=1
+randseed=20260824
+guest=femu@127.0.0.1:8080
+completed

@@ -85,18 +85,21 @@ mapping/rmap, TRIM, NAND timing 경로는 유지했습니다.
 
 ## Final Results
 
-동일한 classifier, 20:80 초기 pool, borrowing, GC trigger와 fio 설정에서
-Global Greedy와 ClassGC를 비교했습니다.
+동일한 장치 구성, preconditioning, GC threshold와 fio workload에서
+Hot/Cold 분리가 없는 Baseline, V4 Global Greedy, V4 ClassGC를 실행했습니다.
 
-| Metric | Global Greedy | ClassGC | Change |
-|---|---:|---:|---:|
-| **WAF** | 7.147977 | **3.060527** | **-57.18%** |
-| GC writes / Host write | 6.147977 | **2.060527** | **-66.48%** |
-| Avg. GC copy | 14,093.52 | **11,034.09** | **-21.71%** |
-| GC / 1M Host writes | 436.2 | **186.7** | **-57.19%** |
-| IOPS | 9,240 | **약 22,200** | 약 2.40배 |
-| Avg. latency | 443.24 ms | **184.22 ms** | -58.44% |
-| Counter invariant | PASS | PASS | 정상 |
+| Metric | Baseline | V4 Global | V4 ClassGC | ClassGC vs Baseline |
+|---|---:|---:|---:|---:|
+| **WAF** | 7.989174 | 7.147977 | **3.060527** | **-61.69%** |
+| Avg. GC copy | 14,334.94 | 14,093.52 | **11,034.09** | **-23.03%** |
+| GC / 1M Host writes | 487.6 | 436.2 | **186.7** | **-61.70%** |
+| IOPS | 8,127 | 9,240 | **약 22,200** | 약 2.73배 |
+| Avg. latency | 503.88 ms | 443.24 ms | **184.22 ms** | **-63.44%** |
+| Counter invariant | PASS | PASS | PASS | 정상 |
+
+Baseline 대비 수치는 전체 Hot/Cold FTL의 결과입니다. GC 정책만의 효과는
+classifier, 20:80 초기 pool, borrowing과 GC trigger가 동일한 V4 Global과
+V4 ClassGC를 비교해야 하며, 이 비교에서 WAF는 57.18% 감소했습니다.
 
 ClassGC victim 결과:
 
@@ -146,11 +149,14 @@ hw/femu/
 
 | Version | Branch | Commit |
 |---|---|---|
+| Baseline | `hotcold/base` | `c0237bb12f183d87ea1abf2bf52e92f900f6c587` |
 | Global Control | `hotcold/v4` | `032d29b83e3906593ef9f79e5d2739bdab27ef5e` |
 | ClassGC | `hotcold/v4-classgc` | `c277fbcc99c016db265674cac7ce81c98addbdfc` |
 
 ```text
 experiment_results/ftl_hotcold/
+├── baseline_v4_env/
+│   └── 20260902_042054_KST_baseline_seed20260824/
 └── v4_global_vs_classgc_20260901_181151_KST/
     ├── final_global/
     └── final_classgc/

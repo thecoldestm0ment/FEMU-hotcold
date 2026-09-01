@@ -1,0 +1,8 @@
+[2026-09-02 04:20:54 KST] Preparing baseline run
+[2026-09-02 04:20:55 KST] Launching fresh FEMU baseline process
+[2026-09-02 04:21:21 KST] Running guest preflight
+[2026-09-02 04:21:27 KST] Running 6 GiB sequential preconditioning
+[2026-09-02 04:21:51 KST] Resetting measurement counters after preconditioning
+[2026-09-02 04:21:52 KST] Running 3600-second baseline fio workload
+[2026-09-02 05:23:35 KST] Collecting final FEMU statistics
+[2026-09-02 05:23:45 KST] COMPLETED: /root/workspace/FEMU/experiment_results/ftl_hotcold/baseline_v4_env/20260902_042054_KST_baseline_seed20260824

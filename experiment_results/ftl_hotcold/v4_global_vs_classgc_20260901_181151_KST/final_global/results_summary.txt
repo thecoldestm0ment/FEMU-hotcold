@@ -1,0 +1,19 @@
+V4 Global Greedy final result
+branch=hotcold/v4
+commit=032d29b83e3906593ef9f79e5d2739bdab27ef5e
+runtime_seconds=3600
+seed=20260824
+
+host_page_writes=133084356
+gc_page_writes=818199518
+nand_page_writes=951283874
+waf=7.147977
+gc_count=58055
+average_gc_copy=14093.523693
+block_erases=3715520
+iops=9240
+bandwidth_mib_s=144
+hot_write_ratio=0.125650
+borrow_count=4
+emergency_gc_count=0
+counter_invariant=PASS
