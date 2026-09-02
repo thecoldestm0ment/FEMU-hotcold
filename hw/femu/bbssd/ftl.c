@@ -1438,7 +1438,7 @@ static LineClass select_gc_class_by_pressure(struct ssd *ssd)
     return LINE_CLASS_COLD;
 }
 
-/* class 내 Hot greedy 또는 Cold age×invalid-ratio victim을 고른다. */
+/* class 내 Hot greedy 또는 Cold invalid-page-count victim을 고른다. */
 static struct line *select_class_victim(struct ssd *ssd,
                                         LineClass data_class, bool force)
 {
@@ -1467,19 +1467,13 @@ static struct line *select_class_victim(struct ssd *ssd,
         } else {
             uint32_t threshold = force ? COLD_FORCED_INVALID_PERCENT :
                                          COLD_NORMAL_INVALID_PERCENT;
-            uint64_t age;
             __uint128_t score;
 
             if ((uint64_t)line->ipc * INVALID_PERCENT_SCALE <
                 (uint64_t)ssd->sp.pgs_per_line * threshold) {
                 continue;
             }
-            /* age는 physical program age가 아닌 Host-write logical age다. */
-            ftl_assert(line->last_host_write_seq <= ssd->host_write_seq);
-            /* 0은 measurement 시작 후 이 line에 Host write가 없었다는 뜻이다. */
-            age = line->last_host_write_seq == 0 ? ssd->host_write_seq :
-                  ssd->host_write_seq - line->last_host_write_seq;
-            score = (__uint128_t)age * (uint64_t)line->ipc;
+            score = (uint64_t)line->ipc;
             if (!best || score > best_score ||
                 (score == best_score && line->ipc > best->ipc) ||
                 (score == best_score && line->ipc == best->ipc &&
