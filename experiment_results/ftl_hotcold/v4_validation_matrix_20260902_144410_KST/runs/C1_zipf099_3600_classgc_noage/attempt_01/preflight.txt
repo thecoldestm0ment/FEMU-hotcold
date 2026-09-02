@@ -1,0 +1,6 @@
+Linux fvm 5.4.0-64-generic #72-Ubuntu SMP Fri Jan 15 10:27:54 UTC 2021 x86_64 x86_64 x86_64 GNU/Linux
+fio-3.16
+nvme version 1.9
+6442450944
+NAME          SIZE TYPE MOUNTPOINT
+nvme0n1 6442450944 disk 

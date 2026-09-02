@@ -1,0 +1,1 @@
+sudo fio --output-format=json /tmp/E2_zipf070_1800_classgc.fio

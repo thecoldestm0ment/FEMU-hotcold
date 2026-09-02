@@ -1,0 +1,1 @@
+sudo fio --output-format=json /tmp/B1_zipf099_fixed_global.fio

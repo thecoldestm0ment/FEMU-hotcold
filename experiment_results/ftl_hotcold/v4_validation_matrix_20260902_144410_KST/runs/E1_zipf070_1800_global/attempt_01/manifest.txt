@@ -1,0 +1,23 @@
+run_id=E1_zipf070_1800_global
+implementation=V4 Global
+branch=hotcold/v4
+commit=032d29b83e3906593ef9f79e5d2739bdab27ef5e
+distribution=zipf:0.7
+runtime_seconds=1800
+io_size_per_job=
+raw_nand_gib=8
+exposed_mib=6144
+op_percent=25
+gc_threshold_percent=75
+gc_threshold_high_percent=95
+precondition=6GiB sequential write
+measurement_reset=nvme admin-passthru /dev/nvme0 --opcode=0xef --cdw10=5
+rw=randwrite
+bs=16k
+working_set=5G
+iodepth=128
+numjobs=32
+randrepeat=1
+randseed=20260824
+fixed_write_total_gib=
+fresh_femu_process=yes

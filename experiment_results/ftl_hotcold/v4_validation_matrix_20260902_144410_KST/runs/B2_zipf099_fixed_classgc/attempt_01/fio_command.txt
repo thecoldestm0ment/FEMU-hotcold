@@ -1,0 +1,1 @@
+sudo fio --output-format=json /tmp/B2_zipf099_fixed_classgc.fio

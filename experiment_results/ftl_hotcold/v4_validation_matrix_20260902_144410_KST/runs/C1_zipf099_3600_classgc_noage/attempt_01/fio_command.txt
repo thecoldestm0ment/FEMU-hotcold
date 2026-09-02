@@ -1,0 +1,1 @@
+sudo fio --output-format=json /tmp/C1_zipf099_3600_classgc_noage.fio

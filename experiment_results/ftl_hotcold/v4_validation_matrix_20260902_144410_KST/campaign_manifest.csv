@@ -1,0 +1,13 @@
+order,run_id,priority,experiment,implementation,branch,commit,distribution,runtime_seconds,io_size_per_job,total_io_size_gib,working_set_gib,seed
+1,A1_zipf099_1800_global,1,A,V4 Global,hotcold/v4,032d29b83e3906593ef9f79e5d2739bdab27ef5e,zipf:0.99,1800,,,5,20260824
+2,A2_zipf099_1800_classgc,1,A,V4 ClassGC,hotcold/v4-classgc,d067a64de2974949807a6a6652cf2a08a76d1c4c,zipf:0.99,1800,,,5,20260824
+3,B1_zipf099_fixed_global,1,B,V4 Global,hotcold/v4,032d29b83e3906593ef9f79e5d2739bdab27ef5e,zipf:0.99,,16G,512,5,20260824
+4,B2_zipf099_fixed_classgc,1,B,V4 ClassGC,hotcold/v4-classgc,d067a64de2974949807a6a6652cf2a08a76d1c4c,zipf:0.99,,16G,512,5,20260824
+5,C1_zipf099_3600_classgc_noage,1,C,V4 ClassGC without age,hotcold/v4-classgc-noage,ea289e975127f2e63e510c0ce4ed22081ffec293,zipf:0.99,1800,,,5,20260824
+6,D1_uniform_1800_global,2,D,V4 Global,hotcold/v4,032d29b83e3906593ef9f79e5d2739bdab27ef5e,uniform,1800,,,5,20260824
+7,D2_uniform_1800_classgc,2,D,V4 ClassGC,hotcold/v4-classgc,d067a64de2974949807a6a6652cf2a08a76d1c4c,uniform,1800,,,5,20260824
+8,E1_zipf070_1800_global,2,E,V4 Global,hotcold/v4,032d29b83e3906593ef9f79e5d2739bdab27ef5e,zipf:0.7,1800,,,5,20260824
+9,E2_zipf070_1800_classgc,2,E,V4 ClassGC,hotcold/v4-classgc,d067a64de2974949807a6a6652cf2a08a76d1c4c,zipf:0.7,1800,,,5,20260824
+10,F1_zipf120_1800_global,2,F,V4 Global,hotcold/v4,032d29b83e3906593ef9f79e5d2739bdab27ef5e,zipf:1.2,1800,,,5,20260824
+11,F2_zipf120_1800_classgc,2,F,V4 ClassGC,hotcold/v4-classgc,d067a64de2974949807a6a6652cf2a08a76d1c4c,zipf:1.2,1800,,,5,20260824
+12,G1_zipf120_1800_classgc_noage,2,G,V4 ClassGC without age,hotcold/v4-classgc-noage,ea289e975127f2e63e510c0ce4ed22081ffec293,zipf:1.2,1800,,,5,20260824

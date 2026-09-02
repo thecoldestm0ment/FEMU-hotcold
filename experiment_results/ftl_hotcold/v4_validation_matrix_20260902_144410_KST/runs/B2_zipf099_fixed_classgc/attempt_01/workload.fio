@@ -1,0 +1,17 @@
+[global]
+filename=/dev/nvme0n1
+direct=1
+ioengine=libaio
+rw=randwrite
+bs=16k
+iodepth=128
+numjobs=32
+size=5G
+io_size=16G
+group_reporting=1
+randrepeat=1
+randseed=20260824
+percentile_list=99:99.9:99.99
+random_distribution=zipf:0.99
+
+[measurement]

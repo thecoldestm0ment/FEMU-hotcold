@@ -1,0 +1,3 @@
+d3f1651d39923bd04f9d34e73e9e2cbc6b65842391737b6cbac9798ec1ee6182  /root/workspace/FEMU/hw/femu/bbssd/ftl.c
+e8512a4ff987c7048f0ed77278eb57fa57d5b9a0cb61e08e6b51065ff3b80de9  /root/workspace/FEMU/hw/femu/bbssd/ftl.h
+59b8c6f4f0390d8d4afe6278922e14518da6287ed84dec3d9c14404ed957c2bb  /root/workspace/FEMU/hw/femu/bbssd/bb.c

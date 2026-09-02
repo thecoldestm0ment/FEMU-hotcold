@@ -9,9 +9,7 @@
 #define ERASE_EVENT_THRESHOLD_DEFAULT 1U
 #define HOT_POOL_PERCENT_DEFAULT 50U
 #define HOT_NORMAL_INVALID_DIVISOR 8U
-#define INVALID_PERCENT_SCALE 100U
-#define COLD_NORMAL_INVALID_PERCENT 30U
-#define COLD_FORCED_INVALID_PERCENT 25U
+#define COLD_NORMAL_INVALID_DIVISOR 8U
 
 static void *ftl_thread(void *arg);
 
@@ -1465,13 +1463,13 @@ static struct line *select_class_victim(struct ssd *ssd,
                 best = line;
             }
         } else {
-            uint32_t threshold = force ? COLD_FORCED_INVALID_PERCENT :
-                                         COLD_NORMAL_INVALID_PERCENT;
             uint64_t age;
             __uint128_t score;
 
-            if ((uint64_t)line->ipc * INVALID_PERCENT_SCALE <
-                (uint64_t)ssd->sp.pgs_per_line * threshold) {
+            /* Normal Cold GC requires 12.5% invalid; forced GC accepts ipc > 0. */
+            if (!force &&
+                (uint64_t)line->ipc * COLD_NORMAL_INVALID_DIVISOR <
+                (uint64_t)ssd->sp.pgs_per_line) {
                 continue;
             }
             /* age는 physical program age가 아닌 Host-write logical age다. */
