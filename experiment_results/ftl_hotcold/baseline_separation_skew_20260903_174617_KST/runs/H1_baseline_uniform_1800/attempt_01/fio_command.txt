@@ -1,0 +1,1 @@
+sudo fio --output-format=json /tmp/H1_baseline_uniform_1800.fio

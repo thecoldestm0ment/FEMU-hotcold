@@ -1,0 +1,1 @@
+sudo fio --output-format=json /tmp/H2_baseline_zipf120_1800.fio

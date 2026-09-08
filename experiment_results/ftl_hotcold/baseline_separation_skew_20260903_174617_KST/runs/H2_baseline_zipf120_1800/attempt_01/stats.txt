@@ -1,0 +1,1 @@
+[FEMU] FTL-Log: BBSSD-STATS version=BASELINE host_page_writes=62087968 nand_page_writes=474871018 gc_page_writes=412783050 block_erases=1854464 waf=7.648358 gc_count=28976 average_gc_copy=14245.687811 counter_invariant=PASS

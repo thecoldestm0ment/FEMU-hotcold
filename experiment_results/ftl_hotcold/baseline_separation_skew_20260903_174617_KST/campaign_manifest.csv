@@ -1,0 +1,3 @@
+order,run_id,implementation,branch,commit,distribution,runtime_seconds,comparison_run,comparison_result_root
+1,H1_baseline_uniform_1800,Baseline,hotcold/base,c0237bb12f183d87ea1abf2bf52e92f900f6c587,uniform,1800,D1_uniform_1800_global,../v4_validation_matrix_20260902_144410_KST
+2,H2_baseline_zipf120_1800,Baseline,hotcold/base,c0237bb12f183d87ea1abf2bf52e92f900f6c587,zipf:1.2,1800,F1_zipf120_1800_global,../v4_validation_matrix_20260902_144410_KST

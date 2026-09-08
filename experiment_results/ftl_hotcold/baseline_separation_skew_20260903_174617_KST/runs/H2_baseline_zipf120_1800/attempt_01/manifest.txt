@@ -1,0 +1,25 @@
+run_id=H2_baseline_zipf120_1800
+implementation=Baseline
+branch=hotcold/base
+commit=c0237bb12f183d87ea1abf2bf52e92f900f6c587
+distribution=zipf:1.2
+runtime_seconds=1800
+raw_nand_gib=8
+exposed_mib=6144
+op_percent=25
+gc_threshold_percent=75
+gc_threshold_high_percent=95
+precondition=6GiB sequential write
+measurement_reset=nvme admin-passthru /dev/nvme0 --opcode=0xef --cdw10=5
+rw=randwrite
+bs=16k
+working_set=5G
+iodepth=128
+numjobs=32
+direct=1
+ioengine=libaio
+randrepeat=1
+randseed=20260824
+time_based=1
+fresh_femu_process=yes
+fio_sha256=607b2b03c88c96509ebc61a9d0e599edcf580e99d49af4b8154effc64d1ab4c4
