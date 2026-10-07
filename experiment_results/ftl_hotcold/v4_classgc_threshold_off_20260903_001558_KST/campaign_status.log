@@ -1,0 +1,8 @@
+[2026-09-03 16:20:15 KST] CAMPAIGN START
+[2026-09-03 16:20:15 KST] START T2_zipf120_1800_classgc_threshold_off attempt=1
+[2026-09-03 16:20:16 KST] FAILED attempt_01: git diff check failed
+[2026-09-03 16:20:26 KST] START T2_zipf120_1800_classgc_threshold_off attempt=2
+[2026-09-03 16:20:27 KST] FAILED attempt_02: git diff check failed
+[2026-09-03 16:20:37 KST] START T2_zipf120_1800_classgc_threshold_off attempt=3
+[2026-09-03 16:52:47 KST] PASS T2_zipf120_1800_classgc_threshold_off attempt=3
+[2026-09-03 16:52:47 KST] PARTIAL COMPLETE

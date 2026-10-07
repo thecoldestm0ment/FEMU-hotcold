@@ -1,0 +1,11 @@
+Warning: you are leaving 1 commit behind, not connected to
+any of your branches:
+
+  d6a9f5152 Uniform T1 (cold) 실험 추가
+
+If you want to keep it by creating a new branch, this may be a good time
+to do so with:
+
+ git branch <new-branch-name> d6a9f5152
+
+HEAD is now at fd5967d4b 워크로드 distribution 변경해서 12개 실험

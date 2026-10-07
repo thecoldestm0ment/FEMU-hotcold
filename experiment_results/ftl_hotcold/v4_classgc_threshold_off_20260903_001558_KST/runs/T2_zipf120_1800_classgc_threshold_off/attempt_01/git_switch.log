@@ -1,0 +1,3 @@
+HEAD is now at fd5967d4b 워크로드 distribution 변경해서 12개 실험
+M	experiment_results/ftl_hotcold/v4_validation_matrix_20260902_144410_KST/SUMMARY.md
+M	experiment_results/ftl_hotcold/v4_validation_matrix_20260902_144410_KST/summary.csv
