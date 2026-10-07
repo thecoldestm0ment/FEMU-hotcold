@@ -1,0 +1,3 @@
+gc_cold_marker_trim_rc=0
+gc_cold_marker_write=1
+gc_cold_marker_reset_rc=0
