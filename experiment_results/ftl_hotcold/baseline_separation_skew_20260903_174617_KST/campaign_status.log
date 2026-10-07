@@ -1,0 +1,6 @@
+[2026-09-03 17:54:51 KST] CAMPAIGN START run_only=all
+[2026-09-03 17:54:51 KST] START H1_baseline_uniform_1800 attempt=01
+[2026-09-03 18:26:30 KST] PASS H1_baseline_uniform_1800 attempt=01
+[2026-09-03 18:26:30 KST] START H2_baseline_zipf120_1800 attempt=01
+[2026-09-03 18:57:56 KST] PASS H2_baseline_zipf120_1800 attempt=01
+[2026-09-03 18:57:56 KST] CAMPAIGN COMPLETE
