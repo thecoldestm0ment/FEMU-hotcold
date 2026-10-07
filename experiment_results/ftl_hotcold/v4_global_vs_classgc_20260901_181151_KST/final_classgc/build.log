@@ -1,0 +1,9 @@
+ninja: Entering directory `/root/workspace/FEMU/build-femu'
+[1/10] Generating qemu-version.h with a custom command (wrapped by meson to capture output)
+[2/8] Compiling C object libsystem.a.p/hw_femu_bbssd_bb.c.o
+[3/8] Compiling C object libsystem.a.p/hw_femu_bbssd_ftl-map.c.o
+[4/8] Compiling C object libsystem.a.p/hw_femu_bbssd_ftl-geom.c.o
+[5/8] Compiling C object libsystem.a.p/hw_femu_bbssd_ftl-media.c.o
+[6/8] Compiling C object libsystem.a.p/hw_femu_csd_csd.c.o
+[7/8] Compiling C object libsystem.a.p/hw_femu_bbssd_ftl.c.o
+[8/8] Linking target qemu-system-x86_64
