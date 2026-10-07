@@ -1,0 +1,6 @@
+synchronized_promotion_writes=3
+reset_rc=0
+2026-08-22T18:09:41+00:00
+2026-08-22T18:10:21+00:00
+fio_rc=0
+stats_rc=0

@@ -1,0 +1,2 @@
+gc_fio_rc=0
+gc_stats_reset_rc=0

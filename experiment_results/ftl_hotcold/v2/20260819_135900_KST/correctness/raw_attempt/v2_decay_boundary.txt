@@ -1,0 +1,3 @@
+seq_pages=16
+decay_marker_write=1
+decay_reset_rc=0
