@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="650" viewBox="0 0 1100 650" role="img" aria-labelledby="title desc">
+  <title id="title">Baseline, V1 T1024, V1 T4096, V3 WAF 비교</title>
+  <desc id="desc">WAF는 각각 7.990, 7.547, 6.973, 6.981이다. 단일 run에서 V1 T4096과 V3는 매우 유사하며 우열을 판정하지 않는다.</desc>
+  <rect width="1100" height="650" fill="#ffffff"/>
+  <text x="550" y="36" text-anchor="middle" font-family="sans-serif" font-size="25" font-weight="700" fill="#172033">분류기 Ablation: Rewrite Threshold와 Erase Feedback</text>
+  <text x="550" y="62" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#526070">동일 seed 20260824 · 동일 3600초 performance workload</text>
+
+  <g stroke="#d9dee8" stroke-width="1">
+    <line x1="105" y1="510" x2="1030" y2="510"/>
+    <line x1="105" y1="462.22" x2="1030" y2="462.22"/>
+    <line x1="105" y1="414.44" x2="1030" y2="414.44"/>
+    <line x1="105" y1="366.67" x2="1030" y2="366.67"/>
+    <line x1="105" y1="318.89" x2="1030" y2="318.89"/>
+    <line x1="105" y1="271.11" x2="1030" y2="271.11"/>
+    <line x1="105" y1="223.33" x2="1030" y2="223.33"/>
+    <line x1="105" y1="175.56" x2="1030" y2="175.56"/>
+    <line x1="105" y1="127.78" x2="1030" y2="127.78"/>
+    <line x1="105" y1="80" x2="1030" y2="80"/>
+  </g>
+  <g font-family="sans-serif" font-size="14" fill="#526070" text-anchor="end">
+    <text x="94" y="515">0</text><text x="94" y="467">1</text>
+    <text x="94" y="419">2</text><text x="94" y="372">3</text>
+    <text x="94" y="324">4</text><text x="94" y="276">5</text>
+    <text x="94" y="228">6</text><text x="94" y="181">7</text>
+    <text x="94" y="133">8</text><text x="94" y="85">9</text>
+  </g>
+  <line x1="105" y1="80" x2="105" y2="510" stroke="#283548" stroke-width="2"/>
+  <line x1="105" y1="510" x2="1030" y2="510" stroke="#283548" stroke-width="2"/>
+  <text x="32" y="295" transform="rotate(-90 32 295)" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="600" fill="#283548">WAF</text>
+
+  <rect x="155" y="128.24" width="150" height="381.76" rx="5" fill="#7b8798"/>
+  <rect x="385" y="149.41" width="150" height="360.59" rx="5" fill="#e3992d"/>
+  <rect x="615" y="176.84" width="150" height="333.16" rx="5" fill="#1c9b5f"/>
+  <rect x="845" y="176.48" width="150" height="333.52" rx="5" fill="#2474d2"/>
+
+  <g font-family="sans-serif" text-anchor="middle">
+    <text x="230" y="114" font-size="20" font-weight="700" fill="#263344">7.990</text>
+    <text x="460" y="135" font-size="20" font-weight="700" fill="#9a5d0a">7.547</text>
+    <text x="690" y="163" font-size="20" font-weight="700" fill="#147247">6.973</text>
+    <text x="920" y="163" font-size="20" font-weight="700" fill="#1558a6">6.981</text>
+    <text x="230" y="540" font-size="17" font-weight="600" fill="#263344">Baseline</text>
+    <text x="230" y="563" font-size="13" fill="#526070">분리 없음</text>
+    <text x="460" y="540" font-size="17" font-weight="600" fill="#9a5d0a">V1 T=1024</text>
+    <text x="460" y="563" font-size="13" fill="#526070">경계 영역 COLD</text>
+    <text x="690" y="540" font-size="17" font-weight="600" fill="#147247">V1 T=4096</text>
+    <text x="690" y="563" font-size="13" fill="#526070">경계 영역 전체 HOT</text>
+    <text x="920" y="540" font-size="17" font-weight="600" fill="#1558a6">V3 R=1</text>
+    <text x="920" y="563" font-size="13" fill="#526070">경계 영역 선택</text>
+  </g>
+
+  <path d="M690 112 L690 92 L920 92 L920 112" fill="none" stroke="#5a6472" stroke-width="2"/>
+  <text x="805" y="82" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="600" fill="#3d4652">V1 T=4096 ≈ V3 (single run)</text>
+  <text x="550" y="614" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#6a7482">주: 단일 seed·1회 결과이므로 V1 T=4096과 V3의 우열을 판정하지 않는다.</text>
+</svg>

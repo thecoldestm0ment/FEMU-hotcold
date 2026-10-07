@@ -132,7 +132,8 @@ trace-ust-all.h
 trace-ust-all.c
 build-femu/
 build/
-/hw/femu/bbssd/참고자료
+# Reports and notes are tracked; the original assignment PDF stays local.
+/hw/femu/bbssd/참고자료/**/*.pdf
 
 # FEMU experiment artifacts kept locally (applies to V1/V2/V2.5/baseline).
 # Curated CSV/Markdown summaries, fio output, and stats remain publishable.
