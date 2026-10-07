@@ -1,0 +1,2 @@
+promotion_writes=3
+promotion_reset_rc=0

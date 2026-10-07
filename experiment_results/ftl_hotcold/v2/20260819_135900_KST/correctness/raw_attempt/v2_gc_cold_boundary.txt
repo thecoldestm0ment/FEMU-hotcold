@@ -1,0 +1,2 @@
+gc_cold_fio_rc=0
+gc_cold_stats_reset_rc=0
