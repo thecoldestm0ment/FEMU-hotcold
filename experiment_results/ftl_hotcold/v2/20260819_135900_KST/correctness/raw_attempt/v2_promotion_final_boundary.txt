@@ -1,0 +1,2 @@
+promotion_final_write=1
+promotion_final_reset_rc=0
