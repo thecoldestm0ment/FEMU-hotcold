@@ -1,0 +1,5 @@
+INVALID / EXCLUDED FROM RESULTS
+
+fio completed, but the QEMU process was attached to the host tool session and exited before the final FEMU statistics boundary could be captured. This attempt cannot provide a valid measurement row.
+
+The raw files are retained for audit only. T=64 was rerun from a fresh QEMU/device state with detached launch; use runs/T64 for all analysis.
